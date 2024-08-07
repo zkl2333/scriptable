@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "@types/scriptable-ios": "^1.7.7"
+  }
+}

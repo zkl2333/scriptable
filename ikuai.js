@@ -1,13 +1,5 @@
-// 配置信息
-const info = {
-  host: "192.168.31.1",
-  port: 80,
-  username: "admin",
-  password: "--------",
-};
-
 // MD5 实现
-var MD5 = function (string) {
+const MD5 = function (string) {
   function RotateLeft(lValue, iShiftBits) {
     return (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
   }
@@ -427,6 +419,11 @@ class iKuai {
   }
 }
 
+const createInfo = (str) => {
+  const [username, password, host, port] = str.split(/[@:]/);
+  return { host, port, username, password };
+};
+
 // 格式化字节
 const formatBytes = (bytes, decimals = 2) => {
   if (bytes === 0) return "0 Bytes";
@@ -455,9 +452,76 @@ const formatTime = (time) => {
 
   return `${hours}小时${minutes}分钟${seconds}秒`;
 };
+const getKeyChain = (key) => {
+  if (Keychain.contains(key)) {
+    return Keychain.get(key);
+  }
+  return null;
+};
 
-async function createWidget() {
+// 绘制环形进度条
+function drawCircularProgress({
+  center,
+  radius,
+  lineWidth,
+  progress,
+  backgroundColor,
+  progressColor,
+  textLarge,
+  textSmall,
+  textColor,
+}) {
+  let ctx = new DrawContext();
+  ctx.size = new Size(200, 200); // 设置画布大小
+  ctx.opaque = false; // 设置背景透明
+  ctx.respectScreenScale = true; // 适应屏幕分辨率
+
+  // 绘制背景圆环
+  ctx.setStrokeColor(backgroundColor);
+  ctx.setLineWidth(lineWidth);
+  ctx.strokeEllipse(
+    new Rect(center.x - radius, center.y - radius, 2 * radius, 2 * radius)
+  );
+
+  // 绘制进度部分
+  const deg = Math.floor(360 * progress); // 将进度转换为角度
+  const canvWidth = lineWidth; // 使用进度条的宽度作为小圆的直径
+
+  for (let t = 0; t < deg; t++) {
+    const rect_x =
+      center.x + radius * Math.sin((t * Math.PI) / 180) - canvWidth / 2;
+    const rect_y =
+      center.y - radius * Math.cos((t * Math.PI) / 180) - canvWidth / 2;
+    const rect_r = new Rect(rect_x, rect_y, canvWidth, canvWidth);
+    ctx.setFillColor(progressColor);
+    ctx.fillEllipse(rect_r);
+  }
+
+  // 设置文本格式
+  ctx.setTextAlignedCenter();
+
+  // 绘制大文字
+  ctx.setFont(Font.boldSystemFont(36)); // 设置大文字的字体和大小
+  ctx.setTextColor(textColor); // 设置大文字的颜色
+  ctx.drawTextInRect(
+    textLarge,
+    new Rect(center.x - 100, center.y - 36, 200, 40)
+  ); // 在中间绘制大文字
+
+  // 绘制小文字
+  ctx.setFont(Font.systemFont(22)); // 设置小文字的字体和大小
+  ctx.setTextColor(textColor); // 设置小文字的颜色
+  ctx.drawTextInRect(
+    textSmall,
+    new Rect(center.x - 100, center.y + 15, 200, 30)
+  ); // 在中间绘制小文字
+
+  return ctx.getImage();
+}
+
+async function createWidget(info) {
   const widget = new ListWidget();
+  widget.backgroundColor = new Color("#333333");
   widget.setPadding(10, 10, 10, 10);
 
   try {
@@ -468,33 +532,109 @@ async function createWidget() {
       TYPE: "sysstat",
     });
 
-    widget.addText(`CPU使用率: ${avg(sysstat.Data.sysstat.cpu)}%`);
-    widget.addText(`内存使用率: ${sysstat.Data.sysstat.memory.used}%`);
-    widget.addText(
-      `总上传: ${formatBytes(sysstat.Data.sysstat.stream.total_up)}`
+    // 总上传下载
+    const subStack = stack.addStack();
+    subStack.layoutVertically();
+    subStack.centerAlignContent();
+
+    
+
+    const uploadText = subStack.addText(
+      `↑ ${formatBytes(sysstat.Data.sysstat.stream.total_up)}`
     );
-    widget.addText(
-      `总下载: ${formatBytes(sysstat.Data.sysstat.stream.total_down)}`
+    uploadText.textColor = new Color("#FCFCFC"); // 设置文本颜色为白色
+    uploadText.centerAlignText(); // 文本居中对齐
+
+    subStack.addSpacer(5);
+
+    const downloadText = subStack.addText(
+      `↓ ${formatBytes(sysstat.Data.sysstat.stream.total_down)}`
     );
-    widget.addText(
-      `当前上传速度: ${formatBytes(sysstat.Data.sysstat.stream.upload)}/s`
-    );
-    widget.addText(
-      `当前下载速度: ${formatBytes(sysstat.Data.sysstat.stream.download)}/s`
-    );
-    widget.addText(`总在线时间: ${formatTime(sysstat.Data.sysstat.uptime)}`);
+    downloadText.textColor = new Color("#FCFCFC"); // 设置文本颜色为白色
+    downloadText.centerAlignText(); // 文本居中对齐
+
+    // CPU 环形进度条
+    const cpu = avg(sysstat.Data.sysstat.cpu);
+    const cpuImg = drawCircularProgress({
+      center: new Point(100, 100),
+      radius: 80,
+      lineWidth: 15,
+      progress: cpu / 100,
+      backgroundColor: new Color("#333A52"),
+      progressColor: new Color("#FFB444"),
+      textLarge: cpu + "%",
+      textSmall: "CPU",
+      textColor: new Color("#FCFCFC"),
+    });
+
+    // 内存环形进度条
+    const memory = parseInt(sysstat.Data.sysstat.memory.used.replace("%", ""));
+    const memoryImg = drawCircularProgress({
+      center: new Point(100, 100),
+      radius: 80,
+      lineWidth: 15,
+      progress: memory / 100,
+      backgroundColor: new Color("#333A52"),
+      progressColor: new Color("#F15A4B"),
+      textLarge: memory + "%",
+      textSmall: "内存",
+      textColor: new Color("#FCFCFC"),
+    });
+
+    // 横向排列
+    const stack = widget.addStack();
+    stack.layoutHorizontally();
+    stack.addImage(cpuImg);
+    stack.addSpacer(10);
+    stack.addImage(memoryImg);
+    stack.addSpacer(10);
+    stack.centerAlignContent();
   } catch (error) {
     widget.addText("获取数据失败");
     console.log(error);
+    throw error;
   }
 
   return widget;
 }
 
-const widget = await createWidget();
-if (config.runsInWidget) {
-  Script.setWidget(widget);
+if (config.runsInApp) {
+  // 弹窗请求输入参数
+  const username = getKeyChain("ikuai_username") || "";
+  const password = getKeyChain("ikuai_password") || "";
+  const host = getKeyChain("ikuai_host") || "";
+  const port = getKeyChain("ikuai_port") || "";
+
+  const alert = new Alert();
+  alert.title = "设置爱快路由器信息";
+  alert.addTextField("username", username);
+  alert.addSecureTextField("password", password);
+  alert.addTextField("host", host);
+  alert.addTextField("port", port);
+  alert.addAction("确定");
+  alert.addCancelAction("取消");
+  const number = await alert.present();
+  if (number === 0) {
+    const username = alert.textFieldValue(0);
+    const password = alert.textFieldValue(1);
+    const host = alert.textFieldValue(2);
+    const port = alert.textFieldValue(3);
+    Keychain.set("ikuai_username", username);
+    Keychain.set("ikuai_password", password);
+    Keychain.set("ikuai_host", host);
+    Keychain.set("ikuai_port", port);
+    const info = { host, port, username, password };
+    const widget = await createWidget(info);
+    widget.presentMedium();
+  }
 } else {
-  widget.presentMedium();
+  const { host, port, username, password } = createInfo(args.widgetParameter);
+  Keychain.set("ikuai_username", username);
+  Keychain.set("ikuai_password", password);
+  Keychain.set("ikuai_host", host);
+  Keychain.set("ikuai_port", port);
+  const widget = await createWidget({ host, port, username, password });
+  Script.setWidget(widget);
 }
+
 Script.complete();
