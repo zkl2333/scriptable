@@ -522,7 +522,7 @@ function drawCircularProgress({
 async function createWidget(info) {
   const widget = new ListWidget();
   widget.backgroundColor = new Color("#333333");
-  widget.setPadding(10, 10, 10, 10);
+  widget.useDefaultPadding();
 
   try {
     const myRouter = new iKuai(info.host, info.port, false);
@@ -532,12 +532,25 @@ async function createWidget(info) {
       TYPE: "sysstat",
     });
 
+    const stack = widget.addStack();
+    stack.centerAlignContent();
+
     // 总上传下载
     const subStack = stack.addStack();
     subStack.layoutVertically();
-    subStack.centerAlignContent();
+    subStack.topAlignContent();
 
-    
+    const logo = await new Request(
+      "https://cdn.jsdelivr.net/gh/zkl2333/scriptable/image/ikuai64.ico"
+    ).loadImage();
+
+    const logoStack = subStack.addStack();
+    const logoImg = logoStack.addImage(logo);
+    logoImg.imageSize = new Size(20, 20);
+    logoStack.addSpacer(5);
+    logoStack.addText("爱快").textColor = new Color("#FCFCFC");
+
+    subStack.addSpacer(20);
 
     const uploadText = subStack.addText(
       `↑ ${formatBytes(sysstat.Data.sysstat.stream.total_up)}`
@@ -552,6 +565,9 @@ async function createWidget(info) {
     );
     downloadText.textColor = new Color("#FCFCFC"); // 设置文本颜色为白色
     downloadText.centerAlignText(); // 文本居中对齐
+    subStack.addSpacer(35);
+
+    stack.addSpacer(10);
 
     // CPU 环形进度条
     const cpu = avg(sysstat.Data.sysstat.cpu);
@@ -581,14 +597,9 @@ async function createWidget(info) {
       textColor: new Color("#FCFCFC"),
     });
 
-    // 横向排列
-    const stack = widget.addStack();
-    stack.layoutHorizontally();
     stack.addImage(cpuImg);
     stack.addSpacer(10);
     stack.addImage(memoryImg);
-    stack.addSpacer(10);
-    stack.centerAlignContent();
   } catch (error) {
     widget.addText("获取数据失败");
     console.log(error);
