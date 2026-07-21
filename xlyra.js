@@ -1,6 +1,6 @@
 // ==========================================
 // xLyra 看板 Scriptable 小组件(Admin Token 版)
-// @version 1.1.0
+// @version 1.2.0
 // 支持: Small / Medium / Large,深浅色自适应
 //
 // 数据源(全部使用 X-Access-Token,xlyra-admin-…):
@@ -30,8 +30,10 @@ const CONFIG = {
   mediumSiteLimit: 4,    // Medium 站点列表行数上限(无 OAuth 时)
   largeSiteLimit: 5,     // Large 站点列表行数上限
   largeOAuthLimit: 2,    // Large OAuth 账号卡片上限
-  version: "1.1.0",      // 当前版本(与头部 @version 保持一致)
+  version: "1.2.0",      // 当前版本(与头部 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js",
+  widgetAutoUpdate: true, // 桌面组件后台刷新时也静默自更新(false 则仅 App 内手动运行时检查)
+  updateCheckHours: 6,   // 更新检查节流间隔(小时),避免每次刷新都请求
 };
 
 const KC = {
@@ -228,6 +230,7 @@ let RUNTIME = { baseURL: "", token: "" };
 // ---------------- 自我更新 ----------------
 // 原理(Honye/scriptable-scripts 的 updateCode):脚本本体就是文件,
 // 用 FileManager 把远程源码写回 module.filename 即完成更新,下次运行生效。
+// App 内运行:弹窗确认;Widget 后台刷新:静默覆盖(widgetAutoUpdate=true 时)。
 function compareVersion(v1, v2) {
   const a = String(v1).split("."), b = String(v2).split(".");
   const len = Math.max(a.length, b.length);
@@ -239,18 +242,52 @@ function compareVersion(v1, v2) {
   return 0;
 }
 
+function selfFM() {
+  let fm = FileManager.local();
+  if (fm.isFileStoredIniCloud(module.filename)) fm = FileManager.iCloud();
+  return fm;
+}
+
+// 节流状态存在 documents 下的独立目录(Widget 可写 documents,不可写 cache/temp)
+function updateStatePath(fm) {
+  const dir = fm.joinPath(fm.documentsDirectory(), "xlyra-widget-state");
+  if (!fm.fileExists(dir)) fm.createDirectory(dir, true);
+  return fm.joinPath(dir, "last-update-check.json");
+}
+
 async function checkUpdate() {
-  if (!CONFIG.updateURL || config.runsInWidget) return;
+  if (!CONFIG.updateURL) return;
+  const inWidget = config.runsInWidget;
+  if (inWidget && !CONFIG.widgetAutoUpdate) return;
+
+  const fm = selfFM();
+  const stateFile = updateStatePath(fm);
+  const nowMs = Date.now();
+  if (fm.fileExists(stateFile)) {
+    try {
+      const st = JSON.parse(fm.readString(stateFile));
+      if (st.lastCheck && nowMs - st.lastCheck < CONFIG.updateCheckHours * 3600 * 1000) return;
+    } catch (_) { /* 状态损坏就当没检查过 */ }
+  }
+  fm.writeString(stateFile, JSON.stringify({ lastCheck: nowMs }));
+
   try {
     const req = new Request(CONFIG.updateURL);
     req.timeoutInterval = 10;
     const code = await req.loadString();
     const m = code.match(/@version\s+([\d.]+)/);
-    if (!m) return;
-    if (compareVersion(m[1], CONFIG.version) <= 0) {
-      console.log(`[xLyra] 已是最新 (${CONFIG.version})`);
+    if (!m || compareVersion(m[1], CONFIG.version) <= 0) {
+      if (!inWidget) console.log(`[xLyra] 已是最新 (${CONFIG.version})`);
       return;
     }
+
+    if (inWidget) {
+      // Widget 后台:静默覆盖,下次刷新生效(本次仍用旧代码渲染,无影响)
+      fm.writeString(module.filename, code);
+      console.log(`[xLyra] 已静默更新 ${CONFIG.version} → ${m[1]},下次刷新生效`);
+      return;
+    }
+
     const a = new Alert();
     a.title = "发现新版本";
     a.message = `${CONFIG.version} → ${m[1]}\n更新会覆盖整个脚本(Keychain 凭证不受影响)。`;
@@ -258,8 +295,6 @@ async function checkUpdate() {
     a.addCancelAction("取消");
     if ((await a.presentAlert()) !== 0) return;
 
-    let fm = FileManager.local();
-    if (fm.isFileStoredIniCloud(module.filename)) fm = FileManager.iCloud();
     fm.writeString(module.filename, code);
 
     const done = new Alert();
@@ -685,11 +720,13 @@ if (notConfigured) {
 w.refreshAfterDate = new Date(Date.now() + 1000 * 60 * CONFIG.refreshMinutes);
 Script.setWidget(w);
 
+// 更新检查:Widget 后台也执行(受 widgetAutoUpdate 和节流控制)
+await checkUpdate();
+
 if (!config.runsInWidget) {
   if (WIDGET_SIZE === "small") await w.presentSmall();
   else if (WIDGET_SIZE === "large") await w.presentLarge();
   else await w.presentMedium();
-  await checkUpdate();
 }
 Script.complete();
 

@@ -54,18 +54,22 @@ xLyra 桌面看板(**Admin Token 版**),深浅色自适应(状态胶囊、5h/7d 
 
 脚本可以从远程地址更新自己(原理参考 [Honye/scriptable-scripts](https://github.com/Honye/scriptable-scripts) 的 `updateCode`):
 
-1. 把 `xlyra.js` 发布到可直链访问的位置(如 GitHub Raw)。
-2. 把直链填入脚本顶部 `CONFIG.updateURL`。
-3. 之后在 **App 内运行**脚本时,会自动比对远程代码头部的 `@version`,发现新版本弹窗确认后覆盖自身。桌面组件刷新时**不会**触发更新检查,不拖慢组件。
+1. 把 `xlyra.js` 发布到可直链访问的位置(已配置为 GitHub Raw:`zkl2333/scriptable`)。
+2. 之后在 **App 内运行**脚本时,会自动比对远程代码头部的 `@version`,发现新版本弹窗确认后覆盖自身。
+3. **桌面组件后台刷新时也会静默自更新**(默认开启,每 6 小时检查一次节流),覆盖后下次刷新生效,全程无需打开 App。
 
 ```js
-version: "1.1.0",      // 当前版本,与头部 @version 保持一致
+version: "1.2.0",      // 当前版本,与头部 @version 保持一致
 updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js",
+widgetAutoUpdate: true, // 组件后台静默自更新;false 则仅 App 内手动运行时检查
+updateCheckHours: 6,   // 检查节流间隔(小时)
 ```
 
 - 更新只覆盖 `.js` 文件,Keychain 里的凭证不受影响。
-- 覆盖在下次运行时生效;若脚本正在编辑页打开,需关闭后重开。
-- 每次改脚本记得同步递增 `@version` 和 `CONFIG.version`。
+- 覆盖在下次运行/刷新时生效;若脚本正在编辑页打开,需关闭后重开。
+- 每次改脚本记得同步递增 `@version` 和 `CONFIG.version` 再 push。
+- 首次安装仍需手动把脚本放进 Scriptable(或用分享菜单安装),之后就可以全自动了。
+- 注意 GitHub Raw 有 CDN 缓存,push 后几分钟内手机可能还拉到旧版,属正常现象。
 
 ### 修改配置 / 重置
 
