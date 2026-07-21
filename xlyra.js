@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.3
+// @version 1.5.4
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.3", // 当前版本(与 @version 保持一致)
+  version: "1.5.4", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -318,18 +318,54 @@ function renderSmall(w, data, time) {
 // ==========================================
 function renderMedium(w, data, time) {
   brandRow(w, time);
-  w.addSpacer(8);
+  w.addSpacer(6);
 
-  // 上部: LED 大数(宽幅组件的天然主角)
-  const lab = w.addText("TODAY // 今日费用");
+  const mid = w.addStack();
+  mid.topAlignContent();
+
+  // 左列: LED 大数 + 累计 + 实时流量
+  const left = mid.addStack();
+  left.layoutVertically();
+  left.size = new Size(150, 0);
+  const lab = left.addText("TODAY // 今日费用");
   lab.font = MONO_SM;
   lab.textColor = C.dim;
-  w.addSpacer(4);
-  addLed(w, money(data.today_cost), { dot: 3.2, gap: 1.3 });
-  w.addSpacer(4);
-  const sub = w.addText(`总 $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOK`);
+  left.addSpacer(3);
+  addLed(left, money(data.today_cost), { dot: 2.4, gap: 1.0 });
+  left.addSpacer(3);
+  const sub = left.addText(`总 $${money(data.total_cost)} · ${compact(data.today_tokens)} TOK`);
   sub.font = MONO_SM;
   sub.textColor = C.dim;
+  left.addSpacer(2);
+  const sub2 = left.addText(`RPM ${data.rpm_60s ?? 0} · TPM ${compact(data.tpm_60s ?? 0)}`);
+  sub2.font = MONO_SM;
+  sub2.textColor = C.dim;
+
+  mid.addSpacer(10);
+
+  // 右列: 今日模型成本 TOP3(无数据时整块隐藏占位)
+  const right = mid.addStack();
+  right.layoutVertically();
+  const tops = (data.top_models || []).slice(0, 3);
+  if (tops.length) {
+    const rt = right.addText("COST TOP3 // 今日模型");
+    rt.font = MONO_SM;
+    rt.textColor = C.dim;
+    right.addSpacer(4);
+    tops.forEach((m, i) => {
+      const r = right.addStack();
+      r.centerAlignContent();
+      const nm = r.addText(`${i + 1} ${trunc(m.model, 15)}`);
+      nm.font = MONO_SM;
+      nm.textColor = C.fg;
+      nm.lineLimit = 1;
+      r.addSpacer();
+      const v = r.addText("$" + money(m.cost));
+      v.font = MONO_B;
+      v.textColor = C.amber;
+      if (i < tops.length - 1) right.addSpacer(3);
+    });
+  }
 
   w.addSpacer(); // 弹性空间, 把指标行压到底部
 
