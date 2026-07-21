@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.4
+// @version 1.4.5
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.4", // 当前版本(与 @version 保持一致)
+  version: "1.4.5", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -81,12 +81,13 @@ const LIGHT = {
   yellow: "#8a6d00",
 };
 const C = Device.isUsingDarkAppearance() ? DARK : LIGHT;
-// 等宽字体三级降级: monospacedSystemFont(新版 API)
-//   → new Font("Menlo")(iOS 系统自带等宽, 老 Scriptable 也能用)
+// 等宽字体三级降级(已核对官方文档):
+//   regularMonospacedSystemFont/boldMonospacedSystemFont(文档 API)
+//   → new Font("Menlo")(iOS 系统自带等宽)
 //   → 系统字体兜底
 const _monoFont =
-  typeof Font.monospacedSystemFont === "function"
-    ? (s, w) => Font.monospacedSystemFont(s, w)
+  typeof Font.regularMonospacedSystemFont === "function"
+    ? (s, w) => (w === "bold" ? Font.boldMonospacedSystemFont(s) : Font.regularMonospacedSystemFont(s))
     : (s, w) => {
         try {
           return new Font(w === "bold" ? "Menlo-Bold" : "Menlo", s);
@@ -126,12 +127,6 @@ const LED_FONT = {
   " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
 };
 
-// 老版 Scriptable 的 respectScreenScale 是布尔属性, 新版是方法, 两种形态都兼容
-function _respectScale(ctx) {
-  if (typeof ctx.respectScreenScale === "function") ctx.respectScreenScale();
-  else ctx.respectScreenScale = true;
-}
-
 // 把文本渲染成 LED 点阵图(灭灯位保留暗点, 像真数码管)
 function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const glyphs = [...String(text)].map((ch) => LED_FONT[ch] || LED_FONT[" "]);
@@ -141,7 +136,7 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
-  _respectScale(ctx);
+  ctx.respectScreenScale = true; // 文档确认: 这是布尔属性, 不是方法
   glyphs.forEach((glyph, i) => {
     for (let r = 0; r < 7; r++) {
       for (let col = 0; col < 5; col++) {
@@ -161,7 +156,7 @@ function dotGrid(family) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = true;
-  _respectScale(ctx);
+  ctx.respectScreenScale = true;
   ctx.setFillColor(C.bg);
   ctx.fillRect(new Rect(0, 0, w, h));
   ctx.setFillColor(C.grid);
@@ -705,24 +700,53 @@ async function runSetup() {
 }
 
 // 返回值: true = 继续往下渲染预览, false = 直接结束
+// 菜单用 UITable 实现(最老的 Scriptable API, 任何版本都是原生表格 sheet 观感)
 async function runMenu() {
   for (;;) {
-    const menu = new Alert();
-    menu.title = "XLYRA // 控制台";
-    menu.message = `v${CONFIG.version}`;
-    menu.addAction("刷新预览");
-    menu.addAction("重新配置凭证");
-    menu.addAction("检查更新");
-    menu.addCancelAction("关闭");
-    // presentSheet 是较新的 API, 老版本回退到 presentAlert
-    const idx = typeof menu.presentSheet === "function" ? await menu.presentSheet() : await menu.presentAlert();
-    if (idx === -1) return false; // 关闭
-    if (idx === 0) return true; // 刷新预览
-    if (idx === 1) {
+    let action = null;
+    const table = new UITable();
+    table.showSeparators = true;
+
+    const head = new UITableRow();
+    head.isHeader = true;
+    head.height = 34;
+    const hcell = head.addText(`XLYRA // 控制台   v${CONFIG.version}`);
+    hcell.titleFont = _monoFont(12, "bold");
+    table.addRow(head);
+
+    const addRow = (icon, title, subtitle, value) => {
+      const r = new UITableRow();
+      r.height = 48;
+      r.dismissOnSelect = true;
+      const cell = r.addText(icon + "  " + title, subtitle);
+      cell.titleFont = _monoFont(13, "bold");
+      cell.subtitleFont = _monoFont(10, "regular");
+      cell.subtitleColor = new Color("#8a877e");
+      r.onSelect = () => {
+        action = value;
+      };
+      table.addRow(r);
+    };
+    addRow("▶", "刷新预览", "按当前组件尺寸渲染一次", "preview");
+    addRow("⚙", "重新配置凭证", "覆盖 Keychain 里的后端地址和 Admin Token", "setup");
+    addRow("↻", "检查更新", "从 GitHub 比对 @version 并更新", "update");
+    addRow("✕", "关闭", "什么都不做, 直接退出", null);
+
+    const foot = new UITableRow();
+    foot.height = 30;
+    const fcell = foot.addText("桌面组件后台刷新不会弹出此菜单");
+    fcell.titleFont = _monoFont(9, "regular");
+    fcell.titleColor = new Color("#8a877e");
+    table.addRow(foot);
+
+    await table.present();
+
+    if (action === "preview") return true;
+    if (action === "setup") {
       await runSetup();
       return true;
     }
-    if (idx === 2) {
+    if (action === "update") {
       const updated = await applyUpdateIfAny({ interactive: true });
       const a = new Alert();
       if (updated) {
@@ -738,6 +762,7 @@ async function runMenu() {
       await a.presentAlert();
       // 回到菜单
     }
+    if (action === null) return false; // 关闭
   }
 }
 
