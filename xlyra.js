@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.0
+// @version 1.4.1
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里本脚本最下方点「运行」一次:
@@ -26,7 +26,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.0", // 当前版本(与 @version 保持一致)
+  version: "1.4.1", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -34,6 +34,14 @@ const CONFIG = {
 const KC_URL = "xlyra.baseURL";
 const KC_TOKEN = "xlyra.adminToken";
 const KC_UPDATE_AT = "xlyra.updateCheckedAt";
+
+// 自更新尽早执行: 即使后面的渲染 API 在这台设备上崩了,
+// 组件也能靠后台刷新自愈(函数声明会提升, 这里调用没问题)
+if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
+  try {
+    await applyUpdateIfAny({ interactive: false });
+  } catch (e) {}
+}
 
 // ==========================================
 // 终端主题
@@ -69,9 +77,14 @@ const LIGHT = {
   yellow: "#8a6d00",
 };
 const C = Device.isUsingDarkAppearance() ? DARK : LIGHT;
-const MONO = Font.monospacedSystemFont(9, "regular");
-const MONO_B = Font.monospacedSystemFont(9, "bold");
-const MONO_SM = Font.monospacedSystemFont(8, "regular");
+// 等宽字体带降级: 老版 Scriptable 没有 Font.monospacedSystemFont
+const _monoFont =
+  typeof Font.monospacedSystemFont === "function"
+    ? (s, w) => Font.monospacedSystemFont(s, w)
+    : (s, w) => (w === "bold" ? Font.boldSystemFont(s) : Font.regularSystemFont(s));
+const MONO = _monoFont(9, "regular");
+const MONO_B = _monoFont(9, "bold");
+const MONO_SM = _monoFont(8, "regular");
 
 // ==========================================
 // 5×7 点阵 LED 字库
@@ -191,7 +204,7 @@ function chip(parent, { label, value, dot }) {
   st.setPadding(3, 6, 3, 6);
   st.centerAlignContent();
   const d = st.addText("●");
-  d.font = Font.monospacedSystemFont(7, "regular");
+  d.font = _monoFont(7, "regular");
   d.textColor = dot;
   st.addSpacer(4);
   const l = st.addText(label + " ");
@@ -216,7 +229,7 @@ function cell(parent, label, value, valueColor) {
   l.textColor = C.dim;
   c.addSpacer(3);
   const v = c.addText(value);
-  v.font = Font.monospacedSystemFont(15, "bold");
+  v.font = _monoFont(15, "bold");
   v.textColor = valueColor || C.fg;
   v.minimumScaleFactor = 0.6;
 }
@@ -740,10 +753,6 @@ if (config.runsInApp && !_u && !_t) {
   await runSetup();
 } else if (config.runsInApp && config.runsWithSiri === false && args.queryParameters.action === "menu") {
   await runMenu();
-}
-
-if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
-  await applyUpdateIfAny({ interactive: false });
 }
 
 let data;
