@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.9
+// @version 1.5.0
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.9", // 当前版本(与 @version 保持一致)
+  version: "1.5.0", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -165,16 +165,13 @@ function dotGrid(family) {
   for (let y = 5; y < h; y += 9) {
     for (let x = 5; x < w; x += 9) ctx.fillRect(new Rect(x, y, 1.3, 1.3));
   }
-  ctx.setFillColor(C.tick);
-  const t = 2, L = 10, m = 6;
-  ctx.fillRect(new Rect(m, m, L, t));
-  ctx.fillRect(new Rect(m, m, t, L));
-  ctx.fillRect(new Rect(w - m - L, m, L, t));
-  ctx.fillRect(new Rect(w - m - t, m, t, L));
-  ctx.fillRect(new Rect(m, h - m - t, L, t));
-  ctx.fillRect(new Rect(m, h - m - L, t, L));
-  ctx.fillRect(new Rect(w - m - L, h - m - t, L, t));
-  ctx.fillRect(new Rect(w - m - t, h - m - L, t, L));
+  // 顺着系统圆角走的细边框(不用直角刻度, 会和圆角遮罩打架)
+  const frame = new Path();
+  frame.addRoundedRect(new Rect(5, 5, w - 10, h - 10), 16, 16);
+  ctx.addPath(frame);
+  ctx.setStrokeColor(C.tick);
+  ctx.setLineWidth(1.2);
+  ctx.strokePath();
   return ctx.getImage();
 }
 
