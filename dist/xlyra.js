@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: purple; icon-glyph: tachometer-alt;
 // @script-id xlyra
-// @version 1.6.1
+// @version 1.6.2
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -96,14 +96,14 @@ var CONFIG = {
   // 单次请求超时(毫秒)
   autoUpdate: true,
   // 自动更新开关
-  version: "1.6.1"
+  version: "1.6.2"
 };
 var KC_URL = "xlyra.baseURL";
 var KC_URL_LEGACY = "xlyra.consoleURL";
 var KC_TOKEN = "xlyra.adminToken";
 var updater = createUpdater({
   scriptId: "xlyra",
-  version: "1.6.1",
+  version: "1.6.2",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/xlyra.js"
 });
 if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
@@ -747,6 +747,7 @@ if (proceedToRender) {
   const family = config.widgetFamily || "small";
   const w = new ListWidget();
   w.setPadding(16, 14, 16, 14);
+  w.widgetURL = URLScheme.forRunningScript() + "?action=menu";
   w.backgroundColor = C.bg;
   w.backgroundImage = dotGrid(family);
   const now = /* @__PURE__ */ new Date();
