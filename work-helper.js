@@ -17,34 +17,61 @@ const endDate = new Date(
 
 const isWorkTime = startDate < nowDate && nowDate < endDate;
 
-// 自动选择文件管理器实例
-const FILE_MGR = FileManager[
-  module.filename.includes('Documents/iCloud~') ? 'iCloud' : 'local'
-]();
+// 缓存是纯本地产物，始终用 local FileManager，不进 iCloud、不跨设备同步
+const FILE_MGR = FileManager.local();
 
 // 定义缓存目录和文件路径
 const cacheDir = FILE_MGR.joinPath(FILE_MGR.documentsDirectory(), 'apiCache');
-if (!FILE_MGR.fileExists(cacheDir)) {
-  FILE_MGR.createDirectory(cacheDir);
-}
+const CACHE_KEEP_DAYS = 7; // 只保留最近 7 天的缓存
 
-// 获取今天的日期字符串
-const dateStr = nowDate.toISOString().split('T')[0];
+const ensureCacheDir = () => {
+  if (!FILE_MGR.fileExists(cacheDir)) {
+    FILE_MGR.createDirectory(cacheDir);
+  }
+};
+
+// 清理过期缓存文件
+const pruneCache = () => {
+  ensureCacheDir();
+  const cutoff = Date.now() - CACHE_KEEP_DAYS * 86400 * 1000;
+  for (const name of FILE_MGR.listContents(cacheDir)) {
+    const m = name.match(/_(\d{4}-\d{2}-\d{2})\.json$/);
+    if (m && new Date(m[1]).getTime() < cutoff) {
+      FILE_MGR.remove(FILE_MGR.joinPath(cacheDir, name));
+    }
+  }
+};
+
+const readCache = (key) => {
+  const file = FILE_MGR.joinPath(cacheDir, `${key}_${dateStr}.json`);
+  if (!FILE_MGR.fileExists(file)) return null;
+  try {
+    return JSON.parse(FILE_MGR.readString(file)).data;
+  } catch {
+    // 缓存损坏：删除并回源重新请求
+    FILE_MGR.remove(file);
+    return null;
+  }
+};
+
+const writeCache = (key, data) => {
+  ensureCacheDir();
+  FILE_MGR.writeString(
+    FILE_MGR.joinPath(cacheDir, `${key}_${dateStr}.json`),
+    JSON.stringify({ data })
+  );
+  pruneCache();
+};
+
+// 获取今天的日期字符串（本地时区，避免 UTC 偏差导致早上取错日期）
+const pad2 = (n) => String(n).padStart(2, '0');
+const dateStr = `${nowDate.getFullYear()}-${pad2(nowDate.getMonth() + 1)}-${pad2(nowDate.getDate())}`;
 
 // 获取今天是否是工作日
 const getTodayInfo = async () => {
-  const cacheFile = FILE_MGR.joinPath(cacheDir, `todayInfo_${dateStr}.json`);
-
   // 检查缓存
-  if (FILE_MGR.fileExists(cacheFile)) {
-    // 如果使用 iCloud，需要确保文件已下载
-    if (FILE_MGR.isFileStoredIniCloud(cacheFile)) {
-      await FILE_MGR.downloadFileFromiCloud(cacheFile);
-    }
-    const cachedContent = FILE_MGR.readString(cacheFile);
-    const cachedData = JSON.parse(cachedContent);
-    return cachedData.data;
-  }
+  const cached = readCache('todayInfo');
+  if (cached) return cached;
 
   // 请求API
   try {
@@ -71,10 +98,7 @@ const getTodayInfo = async () => {
     }
 
     // 缓存数据
-    const cacheData = {
-      data: todayInfo,
-    };
-    FILE_MGR.writeString(cacheFile, JSON.stringify(cacheData));
+    writeCache('todayInfo', todayInfo);
 
     return todayInfo;
   } catch (error) {
@@ -84,17 +108,11 @@ const getTodayInfo = async () => {
 
 // 获取下一个工作日
 const getNextWorkDay = async () => {
-  const cacheFile = FILE_MGR.joinPath(cacheDir, `nextWorkDay_${dateStr}.json`);
-
   // 检查缓存
-  if (FILE_MGR.fileExists(cacheFile)) {
-    if (FILE_MGR.isFileStoredIniCloud(cacheFile)) {
-      await FILE_MGR.downloadFileFromiCloud(cacheFile);
-    }
-    const cachedContent = FILE_MGR.readString(cacheFile);
-    const cachedData = JSON.parse(cachedContent);
+  const cached = readCache('nextWorkDay');
+  if (cached) {
     return new Date(
-      new Date(cachedData.data).setHours(
+      new Date(cached).setHours(
         WORK_HOURS.start.hour,
         WORK_HOURS.start.minute,
         0
@@ -115,10 +133,7 @@ const getNextWorkDay = async () => {
     const nextWorkDayDate = res.workday.date;
 
     // 缓存数据
-    const cacheData = {
-      data: nextWorkDayDate,
-    };
-    FILE_MGR.writeString(cacheFile, JSON.stringify(cacheData));
+    writeCache('nextWorkDay', nextWorkDayDate);
 
     return new Date(
       new Date(nextWorkDayDate).setHours(
