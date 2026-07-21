@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.6
+// @version 1.4.7
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.6", // 当前版本(与 @version 保持一致)
+  version: "1.4.7", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -506,7 +506,26 @@ function loadAuth() {
     baseURL = Keychain.get(KC_URL_LEGACY);
     if (baseURL) Keychain.set(KC_URL, baseURL);
   }
-  const adminToken = Keychain.contains(KC_TOKEN) ? Keychain.get(KC_TOKEN) : "";
+  let adminToken = Keychain.contains(KC_TOKEN) ? Keychain.get(KC_TOKEN) : "";
+  // 兼容早期版本的组件 Parameter 配置: <baseURL>@<token> 或 <baseURL>|<token>
+  if ((!baseURL || !adminToken) && args.widgetParameter) {
+    const p = String(args.widgetParameter).trim();
+    const i = p.indexOf("|") > 0 ? p.indexOf("|") : p.indexOf("@");
+    if (i > 0) {
+      const u = p
+        .slice(0, i)
+        .trim()
+        .replace(/\/v1\/?$/i, "") // 网关 /v1 后缀对 Admin API 是错的, 归一化掉
+        .replace(/\/+$/, "");
+      const t = p.slice(i + 1).trim();
+      if (u && t) {
+        baseURL = u;
+        adminToken = t;
+        Keychain.set(KC_URL, u);
+        Keychain.set(KC_TOKEN, t);
+      }
+    }
+  }
   return { baseURL, adminToken };
 }
 
