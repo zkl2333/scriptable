@@ -1,7 +1,10 @@
 // ==========================================
 // xLyra 看板 Scriptable 小组件(Admin Token 版)
-// @version 1.2.0
-// 支持: Small / Medium / Large,深浅色自适应
+// @version 1.3.0
+// UI: 彭博终端 × 点阵 LED × 粗野主义
+//     纯黑平底 / 琥珀色数据 / 等宽字体 / 直角硬边框 / LED 分段点阵
+//     深色=终端,浅色=报纸粗野主义
+// 支持: Small / Medium / Large
 //
 // 数据源(全部使用 X-Access-Token,xlyra-admin-…):
 //   dashboard/usage · dashboard/epaper-summary · health/sites
@@ -13,8 +16,8 @@
 //   · 无站点 / 无模型成本 → 对应区块同样自动隐藏
 //
 // 自我更新:
-//   把脚本发布到可直链访问的位置(如 GitHub Raw),填入 CONFIG.updateURL,
-//   在 App 内运行时会比对 @version,有新版本弹窗确认后覆盖自身。
+//   远程源码直链见 CONFIG.updateURL;Widget 后台静默更新(节流),
+//   App 内运行弹窗确认。版本号比对 @version。
 //
 // 凭证录入三选一:
 //   1. 长按 Widget → Edit Widget → Parameter 填  https://host[:port][/v1]@xlyra-admin-xxxx
@@ -30,7 +33,7 @@ const CONFIG = {
   mediumSiteLimit: 4,    // Medium 站点列表行数上限(无 OAuth 时)
   largeSiteLimit: 5,     // Large 站点列表行数上限
   largeOAuthLimit: 2,    // Large OAuth 账号卡片上限
-  version: "1.2.0",      // 当前版本(与头部 @version 保持一致)
+  version: "1.3.0",      // 当前版本(与头部 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js",
   widgetAutoUpdate: true, // 桌面组件后台刷新时也静默自更新(false 则仅 App 内手动运行时检查)
   updateCheckHours: 6,   // 更新检查节流间隔(小时),避免每次刷新都请求
@@ -41,50 +44,54 @@ const KC = {
   token: "xlyra_access_token",
 };
 
-// ---------------- 主题（深浅色自适应）----------------
+// ---------------- 主题（终端 × LED × 粗野主义）----------------
 const isDark = Device.isUsingDarkAppearance();
 const C = isDark ? {
-  bg: new Color("#0d0f14"),
-  bgTop: new Color("#181b22"),
-  panel: new Color("#171a20"),
-  panel3: new Color("#101216"),
-  stroke: new Color("#2b303a"),
-  track: new Color("#353944"),
-  text: Color.white(),
-  sub: new Color("#a4a9b6"),
-  dim: new Color("#6f7684"),
-  green: new Color("#18d49a"),
-  greenBg: new Color("#0c342b"),
+  // 深色 = 彭博终端
+  bg: new Color("#000000"),
+  panel: new Color("#0e0e0e"),
+  panel3: new Color("#070707"),
+  stroke: new Color("#2b2b2b"),
+  track: new Color("#232323"),
+  text: new Color("#f2f2f2"),
+  sub: new Color("#9a9a9a"),
+  dim: new Color("#666666"),
+  amber: new Color("#ffb000"),
+  amberBg: new Color("#2a1f00"),
+  green: new Color("#00e676"),
+  greenBg: new Color("#002a16"),
   yellow: new Color("#ffba31"),
-  yellowBg: new Color("#3b2b11"),
-  red: new Color("#ff4d57"),
-  redBg: new Color("#39171b"),
-  blue: new Color("#2878ff"),
-  blueBg: new Color("#10284f"),
+  yellowBg: new Color("#2a1f00"),
+  red: new Color("#ff4337"),
+  redBg: new Color("#2a0d0b"),
+  blue: new Color("#29c7ff"),
+  blueBg: new Color("#06222e"),
   pink: new Color("#ff4fa3"),
-  pinkBg: new Color("#3a1830"),
+  pinkBg: new Color("#2b0f1d"),
   cyan: new Color("#29c7ff"),
 } : {
-  bg: new Color("#f2f3f7"),
-  bgTop: new Color("#ffffff"),
-  panel: new Color("#ffffff"),
-  panel3: new Color("#eef0f4"),
-  stroke: new Color("#e2e4ea"),
-  track: new Color("#d9dce3"),
-  text: new Color("#16181d"),
-  sub: new Color("#5b6270"),
-  dim: new Color("#9aa0ad"),
-  green: new Color("#0da678"),
-  greenBg: new Color("#d9f5ea"),
-  yellow: new Color("#d99600"),
-  yellowBg: new Color("#fbeecd"),
-  red: new Color("#e03540"),
-  redBg: new Color("#fddfe1"),
-  blue: new Color("#1f6bff"),
-  blueBg: new Color("#dce9ff"),
-  pink: new Color("#e53d90"),
-  pinkBg: new Color("#fbdff0"),
-  cyan: new Color("#0fa8d8"),
+  // 浅色 = 报纸粗野主义
+  bg: new Color("#f4f1e8"),
+  panel: new Color("#fffdf6"),
+  panel3: new Color("#ede9dc"),
+  stroke: new Color("#1a1a1a"),
+  track: new Color("#d8d3c2"),
+  text: new Color("#141310"),
+  sub: new Color("#57534a"),
+  dim: new Color("#8f8a7c"),
+  amber: new Color("#b97e00"),
+  amberBg: new Color("#f3e3b3"),
+  green: new Color("#0a8f4d"),
+  greenBg: new Color("#d3ecd9"),
+  yellow: new Color("#b97e00"),
+  yellowBg: new Color("#f3e3b3"),
+  red: new Color("#d42a20"),
+  redBg: new Color("#f6d9d5"),
+  blue: new Color("#0f8fb8"),
+  blueBg: new Color("#d3ecf4"),
+  pink: new Color("#c22e78"),
+  pinkBg: new Color("#f6dbe9"),
+  cyan: new Color("#0f8fb8"),
 };
 
 const WIDGET_SIZE = config.widgetFamily || "medium";
@@ -94,6 +101,8 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const time = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const monthDayTime = (d) => `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${time(d)}`;
 const pct = (n) => `${Math.round(n * 100)}%`;
+// 纯 ASCII 标题转大写(终端风),含中文则原样
+const upper = (s) => (/^[\x20-\x7e]+$/.test(s) ? s.toUpperCase() : s);
 
 function compact(n) {
   if (n == null) return "—";
@@ -118,9 +127,9 @@ function resetLabel(reset) {
   const minutes = Math.ceil(diff / 60000);
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  return `${minutes}m`;
+  if (days > 0) return `${days}D ${hours}H`;
+  if (hours > 0) return `${hours}H ${minutes % 60}M`;
+  return `${minutes}M`;
 }
 function resetDateLabel(reset) {
   if (!reset || reset === "--") return "待同步";
@@ -462,29 +471,33 @@ async function fetchAdmin() {
 }
 
 // ==========================================
-// UI 零件
+// UI 零件(直角 · 硬边框 · 等宽数字 · LED 点阵)
 // ==========================================
 function base() {
   const w = new ListWidget();
-  const g = new LinearGradient();
-  g.colors = [C.bgTop, C.bg];
-  g.locations = [0, 1];
-  w.backgroundGradient = g;
+  w.backgroundColor = C.bg; // 粗野主义:纯色平底,无渐变
   return w;
 }
+// weight: regular / bold / semibold / mono / monoMed / monoBold
 function txt(parent, s, size, weight, color) {
   const t = parent.addText(String(s));
-  t.font = weight === "bold" ? Font.boldSystemFont(size) : weight === "semibold" ? Font.semiboldSystemFont(size) : Font.systemFont(size);
+  if (weight === "bold") t.font = Font.boldSystemFont(size);
+  else if (weight === "semibold") t.font = Font.semiboldSystemFont(size);
+  else if (weight === "mono") t.font = Font.regularMonospacedSystemFont(size);
+  else if (weight === "monoMed") t.font = Font.mediumMonospacedSystemFont(size);
+  else if (weight === "monoBold") t.font = Font.boldMonospacedSystemFont(size);
+  else t.font = Font.systemFont(size);
   t.textColor = color;
   t.lineLimit = 1;
   t.minimumScaleFactor = 0.7;
   return t;
 }
+// 方块指示灯(LED 点阵单元)
 function dot(parent, color, size = 6, gap = 5) {
   const s = parent.addStack();
   s.size = new Size(size, size);
   s.backgroundColor = color;
-  s.cornerRadius = size / 2;
+  s.cornerRadius = 0;
   parent.addSpacer(gap);
 }
 function statusPill(parent, label, h, width = 52) {
@@ -492,7 +505,7 @@ function statusPill(parent, label, h, width = 52) {
   p.centerAlignContent();
   p.size = new Size(width, 20);
   p.backgroundColor = healthBg(h);
-  p.cornerRadius = 10;
+  p.cornerRadius = 0;
   p.borderColor = healthColor(h);
   p.borderWidth = 1;
   p.addSpacer();
@@ -500,19 +513,21 @@ function statusPill(parent, label, h, width = 52) {
   txt(p, label, 10, "bold", healthColor(h));
   p.addSpacer();
 }
+// LED 连续条
 function progressBar(parent, percent, width, height = 6) {
   const n = percent == null ? 0 : Math.max(0, Math.min(100, percent));
   const track = parent.addStack();
   track.layoutHorizontally();
   track.backgroundColor = C.track;
-  track.cornerRadius = height / 2;
+  track.cornerRadius = 0;
   track.size = new Size(width, height);
   const fill = track.addStack();
   fill.backgroundColor = quotaColor(percent);
-  fill.cornerRadius = height / 2;
+  fill.cornerRadius = 0;
   fill.size = new Size(Math.max(4, Math.round(width * (n / 100))), height);
   track.addSpacer();
 }
+// LED 分段点阵条
 function segmentedBar(parent, percent, width) {
   const remain = percent == null ? 0 : Math.max(0, Math.min(100, percent));
   const count = 7;
@@ -526,36 +541,36 @@ function segmentedBar(parent, percent, width) {
     const s = row.addStack();
     s.layoutHorizontally();
     s.size = new Size(segW, 6);
-    s.cornerRadius = 3;
+    s.cornerRadius = 0;
     s.backgroundColor = C.track;
     if (fillRatio >= 0.999) {
       s.backgroundColor = quotaColor(percent);
     } else if (fillRatio > 0) {
       const fill = s.addStack();
       fill.backgroundColor = quotaColor(percent);
-      fill.cornerRadius = 3;
+      fill.cornerRadius = 0;
       fill.size = new Size(Math.max(2, Math.round(segW * fillRatio)), 6);
       s.addSpacer();
     }
     if (i !== count - 1) row.addSpacer(2);
   }
 }
-// 配额面板:标题 + 百分比 + 进度条(5h 连续条 / 7d 分段条) + 底部重置信息
+// 配额面板:琥珀标题 + 等宽百分比 + LED 条(5h 连续 / 7d 点阵) + 重置信息
 function quotaPanel(parent, title, remainPct, reset, width, segmented) {
   const box = parent.addStack();
   box.layoutVertically();
   box.size = new Size(width, 60);
   box.backgroundColor = C.panel;
-  box.cornerRadius = 10;
+  box.cornerRadius = 0;
   box.borderColor = C.stroke;
-  box.borderWidth = 0.5;
+  box.borderWidth = 1;
   box.setPadding(8, 11, 7, 11);
 
   const head = box.addStack();
   head.layoutHorizontally();
-  txt(head, title, 14, "bold", C.text);
+  txt(head, upper(title), 14, "monoBold", C.amber);
   head.addSpacer();
-  txt(head, remainPct == null ? "--%" : `${remainPct}%`, 12, "regular", quotaColor(remainPct));
+  txt(head, remainPct == null ? "--%" : `${remainPct}%`, 12, "monoBold", quotaColor(remainPct));
 
   box.addSpacer(7);
   if (segmented) segmentedBar(box, remainPct, width - 22);
@@ -564,20 +579,20 @@ function quotaPanel(parent, title, remainPct, reset, width, segmented) {
   box.addSpacer(5);
   const foot = box.addStack();
   foot.layoutHorizontally();
-  txt(foot, resetDateLabel(reset), 8, "regular", C.sub);
+  txt(foot, resetDateLabel(reset), 8, "mono", C.sub);
   foot.addSpacer();
-  txt(foot, resetLabel(reset), 8, "regular", C.sub);
+  txt(foot, resetLabel(reset), 8, "mono", C.sub);
 }
 function miniMetric(parent, value, label, color, width) {
   const box = parent.addStack();
   box.layoutVertically();
   box.size = new Size(width, 36);
   box.backgroundColor = C.panel3;
-  box.cornerRadius = 10;
+  box.cornerRadius = 0;
   box.borderColor = C.stroke;
-  box.borderWidth = 0.5;
+  box.borderWidth = 1;
   box.setPadding(7, 10, 6, 10);
-  txt(box, value, 12, "bold", color);
+  txt(box, value, 12, "monoBold", color);
   box.addSpacer(2);
   txt(box, label, 8, "regular", C.sub);
 }
@@ -586,12 +601,12 @@ function summaryCell(parent, value, label, color, width) {
   box.layoutVertically();
   box.size = new Size(width, 52);
   box.backgroundColor = C.panel;
-  box.cornerRadius = 10;
+  box.cornerRadius = 0;
   box.borderColor = C.stroke;
-  box.borderWidth = 0.5;
+  box.borderWidth = 1;
   box.setPadding(8, 6, 7, 6);
   box.centerAlignContent();
-  const v = txt(box, value, 13, "bold", color);
+  const v = txt(box, value, 13, "monoBold", color);
   v.centerAlignText();
   box.addSpacer(3);
   const l = txt(box, label, 9, "regular", C.sub);
@@ -603,16 +618,19 @@ function badge(parent, label) {
   const bg = v === "FREE" ? C.blueBg : v === "PRO" ? C.pinkBg : C.greenBg;
   const b = parent.addStack();
   b.backgroundColor = bg;
-  b.cornerRadius = 7;
+  b.cornerRadius = 0;
   b.setPadding(1, 4, 1, 4);
   txt(b, label, 8, "bold", fg);
 }
+// 区块标题:琥珀方块 + 琥珀标题(ASCII 大写)
 function sectionTitle(parent, title, right) {
   const row = parent.addStack();
   row.layoutHorizontally();
-  txt(row, title, 11, "bold", C.text);
+  row.centerAlignContent();
+  dot(row, C.amber, 7, 6);
+  txt(row, upper(title), 11, "bold", C.amber);
   row.addSpacer();
-  txt(row, right, 10, "bold", C.sub);
+  txt(row, right, 10, "mono", C.sub);
 }
 function siteRowUI(parent, s, fontSize = 10) {
   const row = parent.addStack();
@@ -621,7 +639,7 @@ function siteRowUI(parent, s, fontSize = 10) {
   dot(row, !s.enabled ? C.dim : s.ok ? C.green : s.status === "degraded" ? C.yellow : C.red, 6, 6);
   txt(row, short(s.name, 12), fontSize, "regular", C.text);
   row.addSpacer();
-  txt(row, !s.enabled ? "停用" : `${s.latency}ms`, fontSize - 1, "regular",
+  txt(row, !s.enabled ? "停用" : `${s.latency}ms`, fontSize - 1, "mono",
     !s.enabled ? C.dim : s.latency <= 0 ? C.dim : s.latency < 500 ? C.green : s.latency < 1500 ? C.yellow : C.red);
 }
 function oauthCard(parent, x, width) {
@@ -629,9 +647,9 @@ function oauthCard(parent, x, width) {
   card.layoutVertically();
   card.size = new Size(width, 60);
   card.backgroundColor = C.panel;
-  card.cornerRadius = 10;
+  card.cornerRadius = 0;
   card.borderColor = C.stroke;
-  card.borderWidth = 0.5;
+  card.borderWidth = 1;
   card.setPadding(7, 12, 9, 12);
 
   const cw = width - 24;
@@ -648,9 +666,9 @@ function oauthCard(parent, x, width) {
   card.addSpacer(4);
   const meta = card.addStack();
   meta.layoutHorizontally();
-  txt(meta, `${x.site} · 5h ${x.fiveRemain ?? "--"}%`, 9, "regular", C.sub);
+  txt(meta, `${x.site} · 5H ${x.fiveRemain ?? "--"}%`, 9, "mono", C.sub);
   meta.addSpacer();
-  txt(meta, `7d ${x.weekRemain ?? "--"}%`, 9, "regular", C.sub);
+  txt(meta, `7D ${x.weekRemain ?? "--"}%`, 9, "mono", C.sub);
 
   card.addSpacer(7);
   progressBar(card, Math.min(x.fiveRemain ?? 0, x.weekRemain ?? 0), cw, 5);
@@ -706,9 +724,9 @@ const w = base();
 w.url = "scriptable:///run/" + encodeURIComponent(Script.name());
 
 if (notConfigured) {
-  renderMessage(w, "xLyra", "未配置:长按 Widget → Edit → Parameter 填  https://host@xlyra-admin-xxxx", C.yellow);
+  renderMessage(w, "XLYRA", "未配置:长按 Widget → Edit → Parameter 填  https://host@xlyra-admin-xxxx", C.yellow);
 } else if (fetchError) {
-  renderMessage(w, "xLyra 刷新失败", fetchError, C.red);
+  renderMessage(w, "XLYRA 刷新失败", fetchError, C.red);
 } else if (WIDGET_SIZE === "small") {
   renderSmall(w, d);
 } else if (WIDGET_SIZE === "large") {
@@ -734,7 +752,7 @@ Script.complete();
 function renderMessage(w, title, msg, color) {
   w.setPadding(16, 16, 16, 16);
   w.addSpacer();
-  const t = txt(w, title, 15, "bold", C.text);
+  const t = txt(w, title, 15, "monoBold", C.amber);
   t.centerAlignText();
   w.addSpacer(6);
   const m = w.addText(msg);
@@ -751,9 +769,9 @@ function addQuotaPanels(w, d, cw, gap = 10) {
   const cols2 = columns(cw, 2, gap);
   const quota = w.addStack();
   quota.layoutHorizontally();
-  quotaPanel(quota, "5h", q.fiveRemain, q.fiveReset, cols2[0], false);
+  quotaPanel(quota, "5H", q.fiveRemain, q.fiveReset, cols2[0], false);
   quota.addSpacer(gap);
-  quotaPanel(quota, "7d", q.weekRemain, q.weekReset, cols2[1], true);
+  quotaPanel(quota, "7D", q.weekRemain, q.weekReset, cols2[1], true);
 }
 
 // ==========================================
@@ -768,12 +786,12 @@ function renderSmall(w, d) {
   head.layoutHorizontally();
   head.centerAlignContent();
   dot(head, healthColor(d.health), 8, 6);
-  txt(head, "xLyra", 13, "bold", C.text);
+  txt(head, "XLYRA", 13, "monoBold", C.amber);
   head.addSpacer();
   statusPill(head, healthLabel(d.health), d.health, 46);
 
   w.addSpacer(10);
-  const big = txt(w, `$${money(d.today.cost)}`, 28, "semibold", C.text);
+  const big = txt(w, `$${money(d.today.cost)}`, 28, "monoBold", C.text);
   big.centerAlignText();
   w.addSpacer(2);
   txt(w, `今日费用 · ${d.today.requests} 请求`, 9, "regular", C.sub).centerAlignText();
@@ -784,9 +802,9 @@ function renderSmall(w, d) {
   w.addSpacer(5);
   const foot = w.addStack();
   foot.layoutHorizontally();
-  txt(foot, `成功率 ${ratePct}%`, 9, "regular", quotaColor(ratePct));
+  txt(foot, `成功率 ${ratePct}%`, 9, "mono", quotaColor(ratePct));
   foot.addSpacer();
-  txt(foot, `站点 ${d.sitesHealthy}/${d.sitesTotal}`, 9, "regular", C.sub);
+  txt(foot, `站点 ${d.sitesHealthy}/${d.sitesTotal}`, 9, "mono", C.sub);
 }
 
 // ==========================================
@@ -804,9 +822,15 @@ function renderMedium(w, d) {
   head.centerAlignContent();
   const left = head.addStack();
   left.layoutVertically();
-  txt(left, `更新于 ${monthDayTime(d.checkedAt)}`, 12, "bold", C.text);
+  const brand = left.addStack();
+  brand.layoutHorizontally();
+  brand.centerAlignContent();
+  dot(brand, healthColor(d.health), 7, 5);
+  txt(brand, "XLYRA", 12, "monoBold", C.amber);
+  brand.addSpacer(6);
+  txt(brand, monthDayTime(d.checkedAt), 10, "mono", C.sub);
   left.addSpacer(2);
-  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed}`, 9, "regular", C.sub);
+  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed}`, 9, "mono", C.sub);
   head.addSpacer();
   statusPill(head, healthLabel(d.health), d.health, 52);
 
@@ -820,7 +844,7 @@ function renderMedium(w, d) {
     bottom.layoutHorizontally();
     miniMetric(bottom, compact(d.today.tokens), "今日 Token", C.text, cols3[0]);
     bottom.addSpacer(10);
-    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.text, cols3[1]);
+    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.amber, cols3[1]);
     bottom.addSpacer(10);
     miniMetric(bottom, `${d.rpm}`, "RPM", d.rpm > 0 ? C.cyan : C.sub, cols3[2]);
   } else {
@@ -841,7 +865,7 @@ function renderMedium(w, d) {
     bottom.layoutHorizontally();
     miniMetric(bottom, compact(d.today.tokens), "今日 Token", C.text, cols3[0]);
     bottom.addSpacer(10);
-    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.text, cols3[1]);
+    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.amber, cols3[1]);
     bottom.addSpacer(10);
     miniMetric(bottom, `${d.rpm}`, "RPM", d.rpm > 0 ? C.cyan : C.sub, cols3[2]);
   }
@@ -863,17 +887,23 @@ function renderLarge(w, d) {
   head.centerAlignContent();
   const left = head.addStack();
   left.layoutVertically();
-  txt(left, `更新于 ${monthDayTime(d.checkedAt)}`, 13, "bold", C.text);
+  const brand = left.addStack();
+  brand.layoutHorizontally();
+  brand.centerAlignContent();
+  dot(brand, healthColor(d.health), 8, 6);
+  txt(brand, "XLYRA", 14, "monoBold", C.amber);
+  brand.addSpacer(6);
+  txt(brand, monthDayTime(d.checkedAt), 10, "mono", C.sub);
   left.addSpacer(2);
-  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed} · 冷却 ${d.cooldowns}`, 9, "regular", C.sub);
+  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed} · 冷却 ${d.cooldowns}`, 9, "mono", C.sub);
   head.addSpacer();
   statusPill(head, healthLabel(d.health), d.health, 52);
 
-  // 4 摘要格(不显示 OAuth 格如果没有账号)
+  // 摘要格(不显示 OAuth 格如果没有账号)
   w.addSpacer(12);
   const cells = [
     [`${d.sitesHealthy}/${d.sitesTotal}`, "站点", d.sitesHealthy === d.sitesTotal ? C.green : C.yellow],
-    [`$${money(d.today.cost)}`, "今日费用", C.text],
+    [`$${money(d.today.cost)}`, "今日费用", C.amber],
     [pct(d.today.successRate), "成功率", d.today.successRate >= 0.95 ? C.green : C.yellow],
   ];
   if (hasOAuth) cells.unshift([`${d.oauthHealthy}/${d.oauthTotal}`, "OAuth", d.oauthHealthy === d.oauthTotal ? C.green : C.yellow]);
@@ -917,15 +947,15 @@ function renderLarge(w, d) {
     w.addSpacer(12);
     sectionTitle(w, "今日模型成本 TOP3", `$${money(d.today.cost)}`);
     w.addSpacer(7);
-    const medal = [C.yellow, C.sub, C.dim];
+    const medal = [C.amber, C.sub, C.dim];
     d.topModels.forEach((t, i) => {
       const row = w.addStack();
       row.layoutHorizontally();
       row.centerAlignContent();
       dot(row, medal[i] || C.dim, 6, 6);
-      txt(row, short(t.name, 18), 10, "regular", C.text);
+      txt(row, short(t.name, 18), 10, "mono", C.text);
       row.addSpacer();
-      txt(row, `$${money(t.cost)}`, 10, "bold", C.text);
+      txt(row, `$${money(t.cost)}`, 10, "monoBold", C.amber);
       if (i < d.topModels.length - 1) w.addSpacer(5);
     });
   }
@@ -937,7 +967,7 @@ function renderLarge(w, d) {
   foot.layoutHorizontally();
   foot.centerAlignContent();
   const top1 = d.topModels[0];
-  txt(foot, hasOAuth && top1 ? `TOP ${short(top1.name, 14)} $${money(top1.cost)}` : `冷却 ${d.cooldowns} · RPM ${d.rpm}`, 9, "regular", C.sub);
+  txt(foot, hasOAuth && top1 ? `TOP ${short(top1.name, 14)} $${money(top1.cost)}` : `冷却 ${d.cooldowns} · RPM ${d.rpm}`, 9, "mono", C.sub);
   foot.addSpacer();
-  txt(foot, `累计 $${money(d.totals.cost)} · ${compact(d.totals.tokens)}T`, 9, "regular", C.dim);
+  txt(foot, `累计 $${money(d.totals.cost)} · ${compact(d.totals.tokens)}T`, 9, "mono", C.dim);
 }
