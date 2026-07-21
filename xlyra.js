@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.7
+// @version 1.4.8
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.7", // 当前版本(与 @version 保持一致)
+  version: "1.4.8", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -52,34 +52,34 @@ if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
 // 终端主题
 // ==========================================
 const DARK = {
-  bg: "#0b0b0b",
-  panel: "#131310",
+  bg: new Color("#0b0b0b"),
+  panel: new Color("#131310"),
   grid: new Color("#ffffff", 0.05),
-  tick: "#3a3a3a",
-  line: "#3a3a3a",
-  fg: "#e8e6e1",
-  dim: "#8a877e",
-  amber: "#ffb224",
-  led: "#ffb224",
+  tick: new Color("#3a3a3a"),
+  line: new Color("#3a3a3a"),
+  fg: new Color("#e8e6e1"),
+  dim: new Color("#8a877e"),
+  amber: new Color("#ffb224"),
+  led: new Color("#ffb224"),
   ledDim: new Color("#ffb224", 0.12),
-  green: "#3dd68c",
-  red: "#f2555a",
-  yellow: "#ffd60a",
+  green: new Color("#3dd68c"),
+  red: new Color("#f2555a"),
+  yellow: new Color("#ffd60a"),
 };
 const LIGHT = {
-  bg: "#efece4",
-  panel: "#f8f6f0",
+  bg: new Color("#efece4"),
+  panel: new Color("#f8f6f0"),
   grid: new Color("#000000", 0.07),
-  tick: "#14100e",
-  line: "#14100e",
-  fg: "#16130f",
-  dim: "#6f6a5e",
-  amber: "#b45309",
-  led: "#c2410c",
+  tick: new Color("#14100e"),
+  line: new Color("#14100e"),
+  fg: new Color("#16130f"),
+  dim: new Color("#6f6a5e"),
+  amber: new Color("#b45309"),
+  led: new Color("#c2410c"),
   ledDim: new Color("#c2410c", 0.14),
-  green: "#0a7d4e",
-  red: "#c2242a",
-  yellow: "#8a6d00",
+  green: new Color("#0a7d4e"),
+  red: new Color("#c2242a"),
+  yellow: new Color("#8a6d00"),
 };
 const C = Device.isUsingDarkAppearance() ? DARK : LIGHT;
 // 等宽字体三级降级(已核对官方文档):
