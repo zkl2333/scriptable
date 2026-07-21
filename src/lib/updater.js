@@ -67,8 +67,8 @@ export const createUpdater = ({
     return { source, version: metadata.version };
   };
 
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate({ force });
     if (!update) return false;
 
     if (interactive) {

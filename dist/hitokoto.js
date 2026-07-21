@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: green; icon-glyph: magic;
 // @script-id hitokoto
-// @version 1.0.1
+// @version 1.0.2
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -42,7 +42,7 @@ var createUpdater = ({
   checkInterval = DEFAULT_CHECK_INTERVAL
 }) => {
   const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
-  const checkForUpdate = async ({ force = false } = {}) => {
+  const checkForUpdate2 = async ({ force = false } = {}) => {
     const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
     const now = Math.floor(Date.now() / 1e3);
     if (!force && now - lastCheckedAt < checkInterval) return null;
@@ -59,8 +59,8 @@ var createUpdater = ({
     if (compareVersions(metadata.version, version) <= 0) return null;
     return { source, version: metadata.version };
   };
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate2({ force });
     if (!update) return false;
     if (interactive) {
       const alert = new Alert();
@@ -85,25 +85,132 @@ var createUpdater = ({
       return false;
     }
   };
-  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
+};
+
+// src/lib/widget-menu.js
+var showMessage = async (title, message) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message;
+  alert.addAction("好");
+  await alert.presentAlert();
+};
+var checkForUpdate = async ({ updater: updater2, version }) => {
+  try {
+    const update = await updater2.checkForUpdate({ force: true });
+    if (!update) {
+      await showMessage("已是最新", `当前 v${version}`);
+      return false;
+    }
+    const confirm = new Alert();
+    confirm.title = `发现新版本 v${update.version}`;
+    confirm.message = `是否更新 ${Script.name()}？`;
+    confirm.addAction("更新");
+    confirm.addCancelAction("取消");
+    if (await confirm.presentAlert() !== 0) return false;
+    const updated = await updater2.applyUpdateIfAny({ force: true });
+    if (!updated) {
+      await showMessage("更新未完成", "远端版本已变化，请重新检查。");
+      return false;
+    }
+    await showMessage("更新完成", "脚本已更新，请重新运行。");
+    return true;
+  } catch (error) {
+    await showMessage("检查失败", String(error));
+    return false;
+  }
+};
+var shouldShowWidgetMenu = () => config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension;
+var attachMenuURL = (widget) => {
+  widget.url = URLScheme.forRunningScript();
+  return widget;
+};
+var presentWidget = async (widget, fallbackFamily = "medium") => {
+  const family = fallbackFamily;
+  if (family === "large") return widget.presentLarge();
+  if (family === "small") return widget.presentSmall();
+  return widget.presentMedium();
+};
+var selectPreviewFamilies = async () => {
+  const alert = new Alert();
+  alert.title = "预览组件";
+  alert.message = "测试桌面组件在各种尺寸下的显示效果";
+  alert.addAction("小尺寸 Small");
+  alert.addAction("中尺寸 Medium");
+  alert.addAction("大尺寸 Large");
+  alert.addAction("全部 All");
+  alert.addCancelAction("取消操作");
+  switch (await alert.presentSheet()) {
+    case 0:
+      return ["small"];
+    case 1:
+      return ["medium"];
+    case 2:
+      return ["large"];
+    case 3:
+      return ["small", "medium", "large"];
+    default:
+      return null;
+  }
+};
+var presentWidgetPreviews = async (createWidget2, families) => {
+  for (const family of families) {
+    await presentWidget(await createWidget2(family), family);
+  }
+};
+var runWidgetMenu = async ({
+  title,
+  message = "",
+  version,
+  updater: updater2,
+  actions = []
+}) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message || `当前版本 v${version}`;
+  alert.addAction("预览组件");
+  actions.forEach((action) => alert.addAction(action.title));
+  alert.addAction("检查更新");
+  alert.addCancelAction("取消操作");
+  const index = await alert.presentSheet();
+  if (index === -1) return null;
+  if (index === 0) {
+    const families = await selectPreviewFamilies();
+    return families ? { action: "preview", families } : null;
+  }
+  const actionIndex = index - 1;
+  if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  await checkForUpdate({ updater: updater2, version });
+  return null;
 };
 
 // src/widgets/hitokoto.js
 var updater = createUpdater({
   scriptId: "hitokoto",
-  version: "1.0.1",
+  version: "1.0.2",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/hitokoto.js"
 });
 await updater.autoUpdate();
 var request = new Request("https://v1.hitokoto.cn/?c=d&encode=text");
-var runder = async () => {
+var createWidget = async () => {
   const widget = new ListWidget();
   const textWidget = widget.addText("loading...");
   textWidget.centerAlignText();
   textWidget.font = Font.systemFont(24);
-  const text = await request.loadString();
-  textWidget.text = text;
-  Script.setWidget(widget);
-  Script.complete();
+  textWidget.text = await request.loadString();
+  return attachMenuURL(widget);
 };
-runder();
+if (shouldShowWidgetMenu()) {
+  const menu = await runWidgetMenu({
+    title: "一言",
+    version: "1.0.2",
+    updater
+  });
+  if (menu?.action === "preview") {
+    await presentWidgetPreviews(createWidget, menu.families);
+  }
+} else {
+  Script.setWidget(await createWidget());
+}
+Script.complete();

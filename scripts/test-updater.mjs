@@ -84,6 +84,10 @@ try {
     updateURL: 'https://example.test/widget.js',
   });
   assert.equal(await currentUpdater.checkForUpdate({ force: true }), null);
+
+  writeFileSync(targetPath, oldSource, 'utf8');
+  assert.equal(await updater.applyUpdateIfAny({ force: true }), true);
+  assert.equal(readFileSync(targetPath, 'utf8'), newSource);
   console.log('Updater test passed.');
 } finally {
   rmSync(testDir, { recursive: true, force: true });

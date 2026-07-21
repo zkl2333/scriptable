@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: teal; icon-glyph: magic;
 // @script-id work-helper
-// @version 2.0.2
+// @version 2.0.3
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -42,7 +42,7 @@ var createUpdater = ({
   checkInterval = DEFAULT_CHECK_INTERVAL
 }) => {
   const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
-  const checkForUpdate = async ({ force = false } = {}) => {
+  const checkForUpdate2 = async ({ force = false } = {}) => {
     const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
     const now = Math.floor(Date.now() / 1e3);
     if (!force && now - lastCheckedAt < checkInterval) return null;
@@ -59,8 +59,8 @@ var createUpdater = ({
     if (compareVersions(metadata.version, version) <= 0) return null;
     return { source, version: metadata.version };
   };
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate2({ force });
     if (!update) return false;
     if (interactive) {
       const alert = new Alert();
@@ -85,13 +85,110 @@ var createUpdater = ({
       return false;
     }
   };
-  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
+};
+
+// src/lib/widget-menu.js
+var showMessage = async (title, message) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message;
+  alert.addAction("好");
+  await alert.presentAlert();
+};
+var checkForUpdate = async ({ updater: updater2, version }) => {
+  try {
+    const update = await updater2.checkForUpdate({ force: true });
+    if (!update) {
+      await showMessage("已是最新", `当前 v${version}`);
+      return false;
+    }
+    const confirm = new Alert();
+    confirm.title = `发现新版本 v${update.version}`;
+    confirm.message = `是否更新 ${Script.name()}？`;
+    confirm.addAction("更新");
+    confirm.addCancelAction("取消");
+    if (await confirm.presentAlert() !== 0) return false;
+    const updated = await updater2.applyUpdateIfAny({ force: true });
+    if (!updated) {
+      await showMessage("更新未完成", "远端版本已变化，请重新检查。");
+      return false;
+    }
+    await showMessage("更新完成", "脚本已更新，请重新运行。");
+    return true;
+  } catch (error) {
+    await showMessage("检查失败", String(error));
+    return false;
+  }
+};
+var shouldShowWidgetMenu = () => config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension;
+var attachMenuURL = (widget) => {
+  widget.url = URLScheme.forRunningScript();
+  return widget;
+};
+var presentWidget = async (widget, fallbackFamily = "medium") => {
+  const family = fallbackFamily;
+  if (family === "large") return widget.presentLarge();
+  if (family === "small") return widget.presentSmall();
+  return widget.presentMedium();
+};
+var selectPreviewFamilies = async () => {
+  const alert = new Alert();
+  alert.title = "预览组件";
+  alert.message = "测试桌面组件在各种尺寸下的显示效果";
+  alert.addAction("小尺寸 Small");
+  alert.addAction("中尺寸 Medium");
+  alert.addAction("大尺寸 Large");
+  alert.addAction("全部 All");
+  alert.addCancelAction("取消操作");
+  switch (await alert.presentSheet()) {
+    case 0:
+      return ["small"];
+    case 1:
+      return ["medium"];
+    case 2:
+      return ["large"];
+    case 3:
+      return ["small", "medium", "large"];
+    default:
+      return null;
+  }
+};
+var presentWidgetPreviews = async (createWidget2, families) => {
+  for (const family of families) {
+    await presentWidget(await createWidget2(family), family);
+  }
+};
+var runWidgetMenu = async ({
+  title,
+  message = "",
+  version,
+  updater: updater2,
+  actions = []
+}) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message || `当前版本 v${version}`;
+  alert.addAction("预览组件");
+  actions.forEach((action) => alert.addAction(action.title));
+  alert.addAction("检查更新");
+  alert.addCancelAction("取消操作");
+  const index = await alert.presentSheet();
+  if (index === -1) return null;
+  if (index === 0) {
+    const families = await selectPreviewFamilies();
+    return families ? { action: "preview", families } : null;
+  }
+  const actionIndex = index - 1;
+  if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  await checkForUpdate({ updater: updater2, version });
+  return null;
 };
 
 // src/widgets/work-helper.js
 var updater = createUpdater({
   scriptId: "work-helper",
-  version: "2.0.2",
+  version: "2.0.3",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/work-helper.js"
 });
 await updater.autoUpdate();
@@ -237,16 +334,16 @@ var getHolidayCountdown = async () => {
   }
   return { title: `距离${holidayName}放假`, date: countdownDate };
 };
-var setRefreshAfterDate = (widget2, todayInfo) => {
+var setRefreshAfterDate = (widget, todayInfo) => {
   if (todayInfo.isWorkDay && nowDate < startDate) {
-    widget2.refreshAfterDate = startDate;
+    widget.refreshAfterDate = startDate;
   } else if (todayInfo.isWorkDay && nowDate < endDate) {
-    widget2.refreshAfterDate = endDate;
+    widget.refreshAfterDate = endDate;
   } else {
     const tomorrow = new Date(nowDate);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 1, 0, 0);
-    widget2.refreshAfterDate = tomorrow;
+    widget.refreshAfterDate = tomorrow;
   }
 };
 var COLORS = {
@@ -277,8 +374,8 @@ var getPhase = (todayInfo) => {
   if (nowDate < endDate) return "working";
   return "afterWork";
 };
-var addHeader = (widget2, phase) => {
-  const header = widget2.addStack();
+var addHeader = (widget, phase) => {
+  const header = widget.addStack();
   header.centerAlignContent();
   const info = PHASES[phase];
   const icon = header.addImage(SFSymbol.named(info.symbol).image);
@@ -300,14 +397,14 @@ var addHeader = (widget2, phase) => {
   pillText.font = Font.semiboldSystemFont(11);
   pillText.textColor = COLORS.work;
 };
-var addHero = (widget2, countdown, metrics) => {
-  const title = widget2.addText(countdown.title);
+var addHero = (widget, countdown, metrics) => {
+  const title = widget.addText(countdown.title);
   title.textColor = COLORS.subtext;
   title.lineLimit = 1;
   if (countdown.date) {
     title.font = Font.mediumSystemFont(13);
-    widget2.addSpacer(2);
-    const time = widget2.addDate(countdown.date);
+    widget.addSpacer(2);
+    const time = widget.addDate(countdown.date);
     time.font = Font.boldSystemFont(metrics.hero);
     time.textColor = COLORS.text;
     time.applyRelativeStyle();
@@ -318,10 +415,10 @@ var addHero = (widget2, countdown, metrics) => {
     title.minimumScaleFactor = 0.7;
   }
 };
-var addProgress = (widget2, metrics) => {
+var addProgress = (widget, metrics) => {
   const total = endDate - startDate;
   const pct = Math.min(Math.max((nowDate - startDate) / total, 0), 1);
-  const bar = widget2.addStack();
+  const bar = widget.addStack();
   bar.size = new Size(metrics.barWidth, 8);
   bar.cornerRadius = 4;
   bar.backgroundColor = COLORS.track;
@@ -329,13 +426,13 @@ var addProgress = (widget2, metrics) => {
   fill.size = new Size(Math.max(8, Math.round(metrics.barWidth * pct)), 8);
   fill.cornerRadius = 4;
   fill.backgroundColor = COLORS.work;
-  widget2.addSpacer(6);
-  const label = widget2.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
+  widget.addSpacer(6);
+  const label = widget.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
   label.font = Font.mediumSystemFont(11);
   label.textColor = COLORS.subtext;
 };
-var addHolidayCard = (widget2, holiday) => {
-  const card = widget2.addStack();
+var addHolidayCard = (widget, holiday) => {
+  const card = widget.addStack();
   card.setPadding(8, 12, 8, 12);
   card.backgroundColor = COLORS.holidaySoft;
   card.cornerRadius = 12;
@@ -360,9 +457,9 @@ var addHolidayCard = (widget2, holiday) => {
     date.minimumScaleFactor = 0.7;
   }
 };
-var createWidget = async () => {
-  const widget2 = new ListWidget();
-  const widgetFamily = config.widgetFamily || "medium";
+var createWidget = async (family = config.widgetFamily || "medium") => {
+  const widget = new ListWidget();
+  const widgetFamily = family;
   const metrics = METRICS[widgetFamily] || METRICS.medium;
   const gradient = new LinearGradient();
   gradient.colors = [
@@ -372,19 +469,19 @@ var createWidget = async () => {
   gradient.locations = [0, 1];
   gradient.startPoint = new Point(0, 0);
   gradient.endPoint = new Point(1, 1);
-  widget2.backgroundGradient = gradient;
-  widget2.setPadding(14, 16, 14, 16);
+  widget.backgroundGradient = gradient;
+  widget.setPadding(14, 16, 14, 16);
   try {
     const todayInfo = await getTodayInfo();
     const workCountdown = await getWorkCountdown(todayInfo);
-    setRefreshAfterDate(widget2, todayInfo);
+    setRefreshAfterDate(widget, todayInfo);
     const phase = getPhase(todayInfo);
-    addHeader(widget2, phase);
-    widget2.addSpacer();
-    addHero(widget2, workCountdown, metrics);
+    addHeader(widget, phase);
+    widget.addSpacer();
+    addHero(widget, workCountdown, metrics);
     if (phase === "working") {
-      widget2.addSpacer(10);
-      addProgress(widget2, metrics);
+      widget.addSpacer(10);
+      addProgress(widget, metrics);
     }
     if (metrics.showHoliday) {
       let holidayCountdown = null;
@@ -393,36 +490,44 @@ var createWidget = async () => {
       } catch {
       }
       if (holidayCountdown) {
-        widget2.addSpacer();
-        addHolidayCard(widget2, holidayCountdown);
+        widget.addSpacer();
+        addHolidayCard(widget, holidayCountdown);
       }
     }
     if (widgetFamily === "large") {
-      widget2.addSpacer(8);
-      const footer = widget2.addText(
+      widget.addSpacer(8);
+      const footer = widget.addText(
         `工作时间 ${pad2(WORK_HOURS.start.hour)}:${pad2(WORK_HOURS.start.minute)} – ${pad2(WORK_HOURS.end.hour)}:${pad2(WORK_HOURS.end.minute)}`
       );
       footer.font = Font.systemFont(10);
       footer.textColor = COLORS.subtext;
     }
   } catch (error) {
-    widget2.addSpacer();
-    const icon = widget2.addImage(
+    widget.addSpacer();
+    const icon = widget.addImage(
       SFSymbol.named("exclamationmark.triangle.fill").image
     );
     icon.imageSize = new Size(24, 24);
     icon.tintColor = COLORS.work;
-    widget2.addSpacer(6);
-    const errorText = widget2.addText(error.message || "数据加载失败");
+    widget.addSpacer(6);
+    const errorText = widget.addText(error.message || "数据加载失败");
     errorText.font = Font.mediumSystemFont(13);
     errorText.textColor = COLORS.text;
     errorText.minimumScaleFactor = 0.7;
-    widget2.addSpacer();
+    widget.addSpacer();
   }
-  return widget2;
+  return attachMenuURL(widget);
 };
-var widget = await createWidget();
-Script.setWidget(widget);
-if (config.runsInApp) {
-  widget.presentMedium();
+if (shouldShowWidgetMenu()) {
+  const menu = await runWidgetMenu({
+    title: "下班助手",
+    version: "2.0.3",
+    updater
+  });
+  if (menu?.action === "preview") {
+    await presentWidgetPreviews(createWidget, menu.families);
+  }
+} else {
+  Script.setWidget(await createWidget());
 }
+Script.complete();

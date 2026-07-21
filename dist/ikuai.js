@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.0.1
+// @version 1.0.5
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -42,7 +42,7 @@ var createUpdater = ({
   checkInterval = DEFAULT_CHECK_INTERVAL
 }) => {
   const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
-  const checkForUpdate = async ({ force = false } = {}) => {
+  const checkForUpdate2 = async ({ force = false } = {}) => {
     const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
     const now = Math.floor(Date.now() / 1e3);
     if (!force && now - lastCheckedAt < checkInterval) return null;
@@ -59,8 +59,8 @@ var createUpdater = ({
     if (compareVersions(metadata.version, version) <= 0) return null;
     return { source, version: metadata.version };
   };
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate2({ force });
     if (!update) return false;
     if (interactive) {
       const alert = new Alert();
@@ -85,13 +85,110 @@ var createUpdater = ({
       return false;
     }
   };
-  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
+};
+
+// src/lib/widget-menu.js
+var showMessage = async (title, message) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message;
+  alert.addAction("好");
+  await alert.presentAlert();
+};
+var checkForUpdate = async ({ updater: updater2, version }) => {
+  try {
+    const update = await updater2.checkForUpdate({ force: true });
+    if (!update) {
+      await showMessage("已是最新", `当前 v${version}`);
+      return false;
+    }
+    const confirm = new Alert();
+    confirm.title = `发现新版本 v${update.version}`;
+    confirm.message = `是否更新 ${Script.name()}？`;
+    confirm.addAction("更新");
+    confirm.addCancelAction("取消");
+    if (await confirm.presentAlert() !== 0) return false;
+    const updated = await updater2.applyUpdateIfAny({ force: true });
+    if (!updated) {
+      await showMessage("更新未完成", "远端版本已变化，请重新检查。");
+      return false;
+    }
+    await showMessage("更新完成", "脚本已更新，请重新运行。");
+    return true;
+  } catch (error) {
+    await showMessage("检查失败", String(error));
+    return false;
+  }
+};
+var shouldShowWidgetMenu = () => config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension;
+var attachMenuURL = (widget) => {
+  widget.url = URLScheme.forRunningScript();
+  return widget;
+};
+var presentWidget = async (widget, fallbackFamily = "medium") => {
+  const family = fallbackFamily;
+  if (family === "large") return widget.presentLarge();
+  if (family === "small") return widget.presentSmall();
+  return widget.presentMedium();
+};
+var selectPreviewFamilies = async () => {
+  const alert = new Alert();
+  alert.title = "预览组件";
+  alert.message = "测试桌面组件在各种尺寸下的显示效果";
+  alert.addAction("小尺寸 Small");
+  alert.addAction("中尺寸 Medium");
+  alert.addAction("大尺寸 Large");
+  alert.addAction("全部 All");
+  alert.addCancelAction("取消操作");
+  switch (await alert.presentSheet()) {
+    case 0:
+      return ["small"];
+    case 1:
+      return ["medium"];
+    case 2:
+      return ["large"];
+    case 3:
+      return ["small", "medium", "large"];
+    default:
+      return null;
+  }
+};
+var presentWidgetPreviews = async (createWidget2, families) => {
+  for (const family of families) {
+    await presentWidget(await createWidget2(family), family);
+  }
+};
+var runWidgetMenu = async ({
+  title,
+  message = "",
+  version,
+  updater: updater2,
+  actions = []
+}) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message || `当前版本 v${version}`;
+  alert.addAction("预览组件");
+  actions.forEach((action) => alert.addAction(action.title));
+  alert.addAction("检查更新");
+  alert.addCancelAction("取消操作");
+  const index = await alert.presentSheet();
+  if (index === -1) return null;
+  if (index === 0) {
+    const families = await selectPreviewFamilies();
+    return families ? { action: "preview", families } : null;
+  }
+  const actionIndex = index - 1;
+  if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  await checkForUpdate({ updater: updater2, version });
+  return null;
 };
 
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.0.1",
+  version: "1.0.5",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -311,7 +408,12 @@ var iKuai = class {
       request.body = JSON.stringify(login_info);
       let response = await request.loadJSON();
       if (response && response.Result == 1e4) {
-        this.accessKey = request.response.cookies[0].name + "=" + request.response.cookies[0].value;
+        const sessionCookie = request.response.cookies.find(
+          (cookie) => cookie.name === "sess_key"
+        );
+        if (!sessionCookie) throw new Error("登录响应未提供 sess_key Cookie");
+        this.accessKey = sessionCookie.value;
+        this.username = username;
         return this.accessKey;
       } else {
         throw new Error(response);
@@ -321,8 +423,8 @@ var iKuai = class {
     }
   }
   async exec(func, action, param, accessKey) {
-    let go_accesskey = this.accessKey || accessKey;
-    if (!go_accesskey) {
+    const sessionKey = String(this.accessKey || accessKey || "").replace(/^sess_key=/, "");
+    if (!sessionKey) {
       throw new Error("ERR_NOT_LOGGED_IN");
     }
     let url = `${this.protocol}://${this.host}:${this.port}/Action/call`;
@@ -330,8 +432,8 @@ var iKuai = class {
       let request = new Request(url);
       request.method = "POST";
       request.headers = {
-        "Content-Type": "application/json",
-        Cookie: go_accesskey
+        "Content-Type": "application/json;charset=UTF-8",
+        Cookie: `username=${this.username || ""}; login=1; sess_key=${sessionKey}`
       };
       request.body = JSON.stringify({
         func_name: func,
@@ -355,23 +457,89 @@ var createInfo = (str) => {
   return { host, port, username, password };
 };
 var formatBytes = (bytes, decimals = 2) => {
-  if (bytes === 0) return "0 Bytes";
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value === 0) return "0 B";
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  const sizes = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const i = Math.min(Math.floor(Math.log(value) / Math.log(k)), sizes.length - 1);
+  return `${parseFloat((value / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 var avg = (arr) => {
+  if (!Array.isArray(arr) || arr.length === 0) return "0.00";
   const num = arr.map((item) => parseInt(item.replace("%", "")));
   const sum = num.reduce((acc, cur) => acc + cur, 0);
   return (sum / arr.length).toFixed(2);
+};
+var formatTime = (time) => {
+  const totalSeconds = Math.max(0, Math.floor(Number(time) || 0));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor(totalSeconds % 86400 / 3600);
+  const minutes = Math.floor(totalSeconds % 3600 / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分`;
+};
+var getRouterError = (response) => {
+  const code = response?.code ?? response?.Result ?? response?.result ?? "未知响应";
+  const message = response?.ErrMsg || response?.Message || response?.message;
+  return message ? `接口错误 ${code}: ${message}` : `接口错误 ${code}: 未返回系统状态`;
+};
+var getRouterData = (response) => {
+  if (response?.code === 0) return response.results;
+  if (response?.Result === 3e4) return response.Data;
+  return null;
 };
 var getKeyChain = (key) => {
   if (Keychain.contains(key)) {
     return Keychain.get(key);
   }
   return null;
+};
+var loadStoredInfo = () => ({
+  username: getKeyChain("ikuai_username") || "",
+  password: getKeyChain("ikuai_password") || "",
+  host: getKeyChain("ikuai_host") || "",
+  port: getKeyChain("ikuai_port") || ""
+});
+var saveInfo = (info) => {
+  Keychain.set("ikuai_username", info.username);
+  Keychain.set("ikuai_password", info.password);
+  Keychain.set("ikuai_host", info.host);
+  Keychain.set("ikuai_port", info.port);
+};
+var configureRouter = async () => {
+  const current = loadStoredInfo();
+  const alert = new Alert();
+  alert.title = "设置爱快路由器信息";
+  alert.addTextField("username", current.username);
+  if (typeof alert.addSecureTextField === "function") {
+    alert.addSecureTextField("password", current.password);
+  } else {
+    alert.addTextField("password", current.password);
+  }
+  alert.addTextField("host", current.host);
+  alert.addTextField("port", current.port);
+  alert.addAction("保存");
+  alert.addCancelAction("取消");
+  if (await alert.presentAlert() !== 0) return null;
+  const info = {
+    username: alert.textFieldValue(0).trim(),
+    password: alert.textFieldValue(1),
+    host: alert.textFieldValue(2).trim(),
+    port: alert.textFieldValue(3).trim()
+  };
+  saveInfo(info);
+  return info;
+};
+var getWidgetInfo = () => {
+  const parameter = String(args.widgetParameter || "").trim();
+  const info = parameter ? createInfo(parameter) : loadStoredInfo();
+  if (!info.username || !info.password || !info.host || !info.port) {
+    throw new Error("请先在 Scriptable App 内运行脚本，完成爱快路由器配置");
+  }
+  saveInfo(info);
+  return info;
 };
 function drawCircularProgress({
   center,
@@ -393,7 +561,7 @@ function drawCircularProgress({
   ctx.strokeEllipse(
     new Rect(center.x - radius, center.y - radius, 2 * radius, 2 * radius)
   );
-  const deg = Math.floor(360 * progress);
+  const deg = Math.floor(360 * Math.min(Math.max(Number(progress) || 0, 0), 1));
   const canvWidth = lineWidth;
   for (let t = 0; t < deg; t++) {
     const rect_x = center.x + radius * Math.sin(t * Math.PI / 180) - canvWidth / 2;
@@ -417,7 +585,7 @@ function drawCircularProgress({
   );
   return ctx.getImage();
 }
-async function createWidget(info) {
+async function createWidget(info, family = config.widgetFamily || "medium") {
   const widget = new ListWidget();
   widget.backgroundColor = new Color("#333333");
   widget.useDefaultPadding();
@@ -427,6 +595,35 @@ async function createWidget(info) {
     const sysstat = await myRouter.exec("homepage", "show", {
       TYPE: "sysstat"
     });
+    const stats = getRouterData(sysstat)?.sysstat;
+    if (!stats) {
+      console.log(JSON.stringify(sysstat));
+      throw new Error(getRouterError(sysstat));
+    }
+    const stream = stats.stream || {};
+    const cpu = avg(stats.cpu);
+    const memory = parseInt(String(stats.memory?.used || "0%").replace("%", "")) || 0;
+    if (family === "small") {
+      const title = widget.addText("爱快路由器");
+      title.font = Font.boldSystemFont(16);
+      title.textColor = new Color("#FCFCFC");
+      widget.addSpacer(6);
+      const usage = widget.addText(`CPU ${cpu}%  ·  内存 ${memory}%`);
+      usage.font = Font.systemFont(13);
+      usage.textColor = new Color("#FFB444");
+      widget.addSpacer(5);
+      const rate = widget.addText(
+        `↑ ${formatBytes(stream.upload)}/s
+↓ ${formatBytes(stream.download)}/s`
+      );
+      rate.font = Font.mediumSystemFont(14);
+      rate.textColor = new Color("#FCFCFC");
+      widget.addSpacer();
+      const footer = widget.addText(`在线 ${formatTime(stream.uptime)}`);
+      footer.font = Font.systemFont(11);
+      footer.textColor = new Color("#A8B0C0");
+      return attachMenuURL(widget);
+    }
     const stack = widget.addStack();
     stack.centerAlignContent();
     const subStack = stack.addStack();
@@ -440,21 +637,33 @@ async function createWidget(info) {
     logoImg.imageSize = new Size(20, 20);
     logoStack.addSpacer(5);
     logoStack.addText("爱快").textColor = new Color("#FCFCFC");
-    subStack.addSpacer(20);
+    subStack.addSpacer(10);
     const uploadText = subStack.addText(
-      `↑ ${formatBytes(sysstat.Data.sysstat.stream.total_up)}`
+      `累计上传  ${formatBytes(stream.total_up)}`
     );
     uploadText.textColor = new Color("#FCFCFC");
     uploadText.centerAlignText();
-    subStack.addSpacer(5);
+    subStack.addSpacer(4);
     const downloadText = subStack.addText(
-      `↓ ${formatBytes(sysstat.Data.sysstat.stream.total_down)}`
+      `累计下载  ${formatBytes(stream.total_down)}`
     );
     downloadText.textColor = new Color("#FCFCFC");
     downloadText.centerAlignText();
-    subStack.addSpacer(35);
+    subStack.addSpacer(8);
+    const rateText = subStack.addText(
+      `↑ ${formatBytes(stream.upload)}/s
+↓ ${formatBytes(stream.download)}/s`
+    );
+    rateText.font = Font.mediumSystemFont(12);
+    rateText.textColor = new Color("#A8B0C0");
+    rateText.lineLimit = 2;
+    subStack.addSpacer(6);
+    const uptimeText = subStack.addText(`在线 ${formatTime(stream.uptime)}`);
+    uptimeText.font = Font.systemFont(10);
+    uptimeText.textColor = new Color("#A8B0C0");
+    uptimeText.lineLimit = 1;
     stack.addSpacer(10);
-    const cpu = avg(sysstat.Data.sysstat.cpu);
+    const ringSize = family === "large" ? 118 : 88;
     const cpuImg = drawCircularProgress({
       center: new Point(100, 100),
       radius: 80,
@@ -466,7 +675,6 @@ async function createWidget(info) {
       textSmall: "CPU",
       textColor: new Color("#FCFCFC")
     });
-    const memory = parseInt(sysstat.Data.sysstat.memory.used.replace("%", ""));
     const memoryImg = drawCircularProgress({
       center: new Point(100, 100),
       radius: 80,
@@ -478,50 +686,57 @@ async function createWidget(info) {
       textSmall: "内存",
       textColor: new Color("#FCFCFC")
     });
-    stack.addImage(cpuImg);
-    stack.addSpacer(10);
-    stack.addImage(memoryImg);
+    const cpuImage = stack.addImage(cpuImg);
+    cpuImage.imageSize = new Size(ringSize, ringSize);
+    stack.addSpacer(8);
+    const memoryImage = stack.addImage(memoryImg);
+    memoryImage.imageSize = new Size(ringSize, ringSize);
   } catch (error) {
-    widget.addText("获取数据失败");
+    const title = widget.addText("爱快数据获取失败");
+    title.font = Font.boldSystemFont(14);
+    title.textColor = new Color("#F15A4B");
+    widget.addSpacer(6);
+    const message = widget.addText(error.message || "未知错误");
+    message.font = Font.systemFont(11);
+    message.textColor = new Color("#FCFCFC");
+    message.minimumScaleFactor = 0.65;
     console.log(error);
-    throw error;
   }
-  return widget;
+  return attachMenuURL(widget);
 }
-if (config.runsInApp) {
-  const username = getKeyChain("ikuai_username") || "";
-  const password = getKeyChain("ikuai_password") || "";
-  const host = getKeyChain("ikuai_host") || "";
-  const port = getKeyChain("ikuai_port") || "";
-  const alert = new Alert();
-  alert.title = "设置爱快路由器信息";
-  alert.addTextField("username", username);
-  alert.addSecureTextField("password", password);
-  alert.addTextField("host", host);
-  alert.addTextField("port", port);
-  alert.addAction("确定");
-  alert.addCancelAction("取消");
-  const number = await alert.present();
-  if (number === 0) {
-    const username2 = alert.textFieldValue(0);
-    const password2 = alert.textFieldValue(1);
-    const host2 = alert.textFieldValue(2);
-    const port2 = alert.textFieldValue(3);
-    Keychain.set("ikuai_username", username2);
-    Keychain.set("ikuai_password", password2);
-    Keychain.set("ikuai_host", host2);
-    Keychain.set("ikuai_port", port2);
-    const info = { host: host2, port: port2, username: username2, password: password2 };
-    const widget = await createWidget(info);
-    widget.presentMedium();
+if (shouldShowWidgetMenu()) {
+  for (; ; ) {
+    const action = await runWidgetMenu({
+      title: "爱快路由器",
+      version: "1.0.5",
+      updater,
+      actions: [
+        {
+          id: "settings",
+          icon: "⚙",
+          title: "配置路由器",
+          subtitle: "保存用户名、密码、地址和端口"
+        }
+      ]
+    });
+    if (!action) break;
+    if (action.action === "settings") {
+      const info = await configureRouter();
+      if (info) await presentWidgetPreviews((family) => createWidget(info, family), ["medium"]);
+      break;
+    }
+    if (action.action === "preview") {
+      let info = loadStoredInfo();
+      if (!info.username || !info.password || !info.host || !info.port) {
+        info = await configureRouter();
+      }
+      if (info) {
+        await presentWidgetPreviews((family) => createWidget(info, family), action.families);
+      }
+      break;
+    }
   }
 } else {
-  const { host, port, username, password } = createInfo(args.widgetParameter);
-  Keychain.set("ikuai_username", username);
-  Keychain.set("ikuai_password", password);
-  Keychain.set("ikuai_host", host);
-  Keychain.set("ikuai_port", port);
-  const widget = await createWidget({ host, port, username, password });
-  Script.setWidget(widget);
+  Script.setWidget(await createWidget(getWidgetInfo()));
 }
 Script.complete();

@@ -1,4 +1,10 @@
 import { createUpdater } from '../lib/updater.js';
+import {
+  attachMenuURL,
+  presentWidgetPreviews,
+  runWidgetMenu,
+  shouldShowWidgetMenu,
+} from '../lib/widget-menu.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -328,9 +334,9 @@ const addHolidayCard = (widget, holiday) => {
   }
 };
 
-const createWidget = async () => {
+const createWidget = async (family = config.widgetFamily || 'medium') => {
   const widget = new ListWidget();
-  const widgetFamily = config.widgetFamily || 'medium';
+  const widgetFamily = family;
   const metrics = METRICS[widgetFamily] || METRICS.medium;
 
   const gradient = new LinearGradient();
@@ -395,12 +401,20 @@ const createWidget = async () => {
     widget.addSpacer();
   }
 
-  return widget;
+  return attachMenuURL(widget);
 };
 
-const widget = await createWidget();
-Script.setWidget(widget);
-
-if (config.runsInApp) {
-  widget.presentMedium();
+if (shouldShowWidgetMenu()) {
+  const menu = await runWidgetMenu({
+    title: '下班助手',
+    version: __SCRIPT_VERSION__,
+    updater,
+  });
+  if (menu?.action === 'preview') {
+    await presentWidgetPreviews(createWidget, menu.families);
+  }
+} else {
+  Script.setWidget(await createWidget());
 }
+
+Script.complete();

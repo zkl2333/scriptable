@@ -4,7 +4,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test:updater": "node scripts/test-updater.mjs",
-    "check": "npm run test:updater && npm run build && node --check dist/hitokoto.js && node --check dist/ikuai.js && node --check dist/milk-tea-reminder.js && node --check dist/time-progress.js && node --check dist/work-helper.js && node --check dist/xlyra.js"
+    "test:widget-menu": "node scripts/test-widget-menu.mjs",
+    "check": "npm run test:updater && npm run test:widget-menu && npm run build && node --check dist/hitokoto.js && node --check dist/ikuai.js && node --check dist/milk-tea-reminder.js && node --check dist/time-progress.js && node --check dist/work-helper.js && node --check dist/xlyra.js"
   },
   "devDependencies": {
     "@types/scriptable-ios": "^1.7.7",

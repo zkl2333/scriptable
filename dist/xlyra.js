@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: purple; icon-glyph: tachometer-alt;
 // @script-id xlyra
-// @version 1.6.3
+// @version 1.6.5
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -42,7 +42,7 @@ var createUpdater = ({
   checkInterval = DEFAULT_CHECK_INTERVAL
 }) => {
   const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
-  const checkForUpdate = async ({ force = false } = {}) => {
+  const checkForUpdate2 = async ({ force = false } = {}) => {
     const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
     const now = Math.floor(Date.now() / 1e3);
     if (!force && now - lastCheckedAt < checkInterval) return null;
@@ -59,8 +59,8 @@ var createUpdater = ({
     if (compareVersions(metadata.version, version) <= 0) return null;
     return { source, version: metadata.version };
   };
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate2({ force });
     if (!update) return false;
     if (interactive) {
       const alert = new Alert();
@@ -85,7 +85,104 @@ var createUpdater = ({
       return false;
     }
   };
-  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
+};
+
+// src/lib/widget-menu.js
+var showMessage = async (title, message) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message;
+  alert.addAction("好");
+  await alert.presentAlert();
+};
+var checkForUpdate = async ({ updater: updater2, version }) => {
+  try {
+    const update = await updater2.checkForUpdate({ force: true });
+    if (!update) {
+      await showMessage("已是最新", `当前 v${version}`);
+      return false;
+    }
+    const confirm = new Alert();
+    confirm.title = `发现新版本 v${update.version}`;
+    confirm.message = `是否更新 ${Script.name()}？`;
+    confirm.addAction("更新");
+    confirm.addCancelAction("取消");
+    if (await confirm.presentAlert() !== 0) return false;
+    const updated = await updater2.applyUpdateIfAny({ force: true });
+    if (!updated) {
+      await showMessage("更新未完成", "远端版本已变化，请重新检查。");
+      return false;
+    }
+    await showMessage("更新完成", "脚本已更新，请重新运行。");
+    return true;
+  } catch (error) {
+    await showMessage("检查失败", String(error));
+    return false;
+  }
+};
+var shouldShowWidgetMenu = () => config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension;
+var attachMenuURL = (widget) => {
+  widget.url = URLScheme.forRunningScript();
+  return widget;
+};
+var presentWidget = async (widget, fallbackFamily = "medium") => {
+  const family = fallbackFamily;
+  if (family === "large") return widget.presentLarge();
+  if (family === "small") return widget.presentSmall();
+  return widget.presentMedium();
+};
+var selectPreviewFamilies = async () => {
+  const alert = new Alert();
+  alert.title = "预览组件";
+  alert.message = "测试桌面组件在各种尺寸下的显示效果";
+  alert.addAction("小尺寸 Small");
+  alert.addAction("中尺寸 Medium");
+  alert.addAction("大尺寸 Large");
+  alert.addAction("全部 All");
+  alert.addCancelAction("取消操作");
+  switch (await alert.presentSheet()) {
+    case 0:
+      return ["small"];
+    case 1:
+      return ["medium"];
+    case 2:
+      return ["large"];
+    case 3:
+      return ["small", "medium", "large"];
+    default:
+      return null;
+  }
+};
+var presentWidgetPreviews = async (createWidget2, families) => {
+  for (const family of families) {
+    await presentWidget(await createWidget2(family), family);
+  }
+};
+var runWidgetMenu = async ({
+  title,
+  message = "",
+  version,
+  updater: updater2,
+  actions = []
+}) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message || `当前版本 v${version}`;
+  alert.addAction("预览组件");
+  actions.forEach((action) => alert.addAction(action.title));
+  alert.addAction("检查更新");
+  alert.addCancelAction("取消操作");
+  const index = await alert.presentSheet();
+  if (index === -1) return null;
+  if (index === 0) {
+    const families = await selectPreviewFamilies();
+    return families ? { action: "preview", families } : null;
+  }
+  const actionIndex = index - 1;
+  if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  await checkForUpdate({ updater: updater2, version });
+  return null;
 };
 
 // src/widgets/xlyra.js
@@ -96,14 +193,14 @@ var CONFIG = {
   // 单次请求超时(毫秒)
   autoUpdate: true,
   // 自动更新开关
-  version: "1.6.3"
+  version: "1.6.5"
 };
 var KC_URL = "xlyra.baseURL";
 var KC_URL_LEGACY = "xlyra.consoleURL";
 var KC_TOKEN = "xlyra.adminToken";
 var updater = createUpdater({
   scriptId: "xlyra",
-  version: "1.6.3",
+  version: "1.6.5",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/xlyra.js"
 });
 if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
@@ -602,29 +699,22 @@ async function loadData() {
   };
 }
 async function runSetup() {
+  const currentURL = Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "";
+  const currentToken = Keychain.contains(KC_TOKEN) ? Keychain.get(KC_TOKEN) : "";
   const alert = new Alert();
-  alert.title = "XLYRA // 组件配置";
-  alert.message = "依次输入后端地址和 Admin Token, 将发起一次真实请求验证。\n\n已配置过? 继续 = 覆盖旧凭证";
-  alert.addAction("开始配置");
+  alert.title = "配置 xLyra 看板";
+  alert.message = "保存前会请求后台验证地址和 Admin Token。";
+  alert.addTextField("后端地址，例如 http://192.168.1.10:5801", currentURL);
+  if (typeof alert.addSecureTextField === "function") {
+    alert.addSecureTextField("Admin Access Token", currentToken);
+  } else {
+    alert.addTextField("Admin Access Token", currentToken);
+  }
+  alert.addAction("验证并保存");
   alert.addCancelAction("取消");
   if (await alert.presentAlert() !== 0) return;
-  const urlAlert = new Alert();
-  urlAlert.title = "后端地址";
-  urlAlert.message = "例如 http://192.168.1.10:5801";
-  urlAlert.addTextField("http://", Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "");
-  urlAlert.addAction("下一步");
-  urlAlert.addCancelAction("取消");
-  if (await urlAlert.presentAlert() !== 0) return;
-  const baseURL = urlAlert.textFieldValue(0).trim().replace(/\/+$/, "");
-  const tokenAlert = new Alert();
-  tokenAlert.title = "Admin Access Token";
-  tokenAlert.message = "控制台 → 个人设置 → Access Token";
-  if (typeof tokenAlert.addSecureTextField === "function") tokenAlert.addSecureTextField("xlyra-admin-...");
-  else tokenAlert.addTextField("xlyra-admin-...");
-  tokenAlert.addAction("验证并保存");
-  tokenAlert.addCancelAction("取消");
-  if (await tokenAlert.presentAlert() !== 0) return;
-  const token = tokenAlert.textFieldValue(0).trim();
+  const baseURL = alert.textFieldValue(0).trim().replace(/\/+$/, "");
+  const token = alert.textFieldValue(1).trim();
   try {
     await fetchAdmin(baseURL, token, "/api/v1/dashboard/epaper-summary");
   } catch (e) {
@@ -643,69 +733,6 @@ async function runSetup() {
   done.message = "凭证已验证并保存到 Keychain。\n现在把组件添加到桌面吧。";
   done.addAction("完成");
   await done.presentAlert();
-}
-async function runMenu() {
-  for (; ; ) {
-    let action = null;
-    const table = new UITable();
-    table.showSeparators = true;
-    const head = new UITableRow();
-    head.isHeader = true;
-    head.height = 34;
-    const hcell = head.addText(`XLYRA // 控制台   v${CONFIG.version}`);
-    hcell.titleFont = _monoFont(12, "bold");
-    table.addRow(head);
-    const addRow = (icon, title, subtitle, value) => {
-      const r = new UITableRow();
-      r.height = 48;
-      r.dismissOnSelect = true;
-      const cell2 = r.addText(icon + "  " + title, subtitle);
-      cell2.titleFont = _monoFont(13, "bold");
-      cell2.subtitleFont = _monoFont(10, "regular");
-      cell2.subtitleColor = new Color("#8a877e");
-      r.onSelect = () => {
-        action = value;
-      };
-      table.addRow(r);
-    };
-    addRow("▶", "刷新预览", "按当前组件尺寸渲染一次", "preview");
-    addRow("⚙", "重新配置凭证", "覆盖 Keychain 里的后端地址和 Admin Token", "setup");
-    addRow("↻", "检查更新", "从 GitHub 比对 @version 并更新", "update");
-    addRow("✕", "关闭", "什么都不做, 直接退出", null);
-    const foot = new UITableRow();
-    foot.height = 30;
-    const fcell = foot.addText("桌面组件后台刷新不会弹出此菜单");
-    fcell.titleFont = _monoFont(9, "regular");
-    fcell.titleColor = new Color("#8a877e");
-    table.addRow(foot);
-    await table.present();
-    if (action === "preview") return true;
-    if (action === "setup") {
-      await runSetup();
-      return true;
-    }
-    if (action === "update") {
-      const a = new Alert();
-      try {
-        const updated = await updater.applyUpdateIfAny({ interactive: true });
-        if (updated) {
-          a.title = "更新完成";
-          a.message = "脚本已更新, 请重新运行。";
-          a.addAction("好");
-          await a.presentAlert();
-          return false;
-        }
-        a.title = "已是最新";
-        a.message = `当前 v${CONFIG.version}`;
-      } catch (error) {
-        a.title = "检查失败";
-        a.message = String(error);
-      }
-      a.addAction("好");
-      await a.presentAlert();
-    }
-    if (action === null) return false;
-  }
 }
 function money(v) {
   const n = Number(v) || 0;
@@ -731,23 +758,16 @@ function fmtTime(ts) {
   const d = new Date(ms);
   return d.getHours() + ":" + ("0" + d.getMinutes()).slice(-2);
 }
-var proceedToRender = true;
-if (config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension) {
-  const { baseURL: _u, adminToken: _t } = loadAuth();
-  if (!_u || !_t) await runSetup();
-  else proceedToRender = await runMenu();
-}
-if (proceedToRender) {
+async function createWidget(family = config.widgetFamily || "small") {
   let data;
   try {
     data = await loadData();
   } catch (e) {
     data = { configured: true, error: String(e) };
   }
-  const family = config.widgetFamily || "small";
   const w = new ListWidget();
   w.setPadding(16, 14, 16, 14);
-  w.url = URLScheme.forRunningScript();
+  attachMenuURL(w);
   w.backgroundColor = C.bg;
   w.backgroundImage = dotGrid(family);
   const now = /* @__PURE__ */ new Date();
@@ -781,12 +801,35 @@ if (proceedToRender) {
     else if (family === "large") renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
-  if (config.runsInApp) {
-    if (family === "large") await w.presentLarge();
-    else if (family === "medium") await w.presentMedium();
-    else await w.presentSmall();
-  } else {
-    Script.setWidget(w);
+  return w;
+}
+if (shouldShowWidgetMenu()) {
+  let { baseURL, adminToken } = loadAuth();
+  if (!baseURL || !adminToken) {
+    await runSetup();
+    ({ baseURL, adminToken } = loadAuth());
   }
+  if (baseURL && adminToken) {
+    for (; ; ) {
+      const menu = await runWidgetMenu({
+        title: "XLYRA 控制台",
+        message: "数据看板与凭证管理",
+        version: CONFIG.version,
+        updater,
+        actions: [{ id: "setup", title: "重新配置凭证" }]
+      });
+      if (!menu) break;
+      if (menu.action === "setup") {
+        await runSetup();
+        continue;
+      }
+      if (menu.action === "preview") {
+        await presentWidgetPreviews(createWidget, menu.families);
+        break;
+      }
+    }
+  }
+} else {
+  Script.setWidget(await createWidget());
 }
 Script.complete();

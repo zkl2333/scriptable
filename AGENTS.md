@@ -5,7 +5,7 @@
 - `src/widgets/` 存放可编辑的 Scriptable 组件入口，文件使用 `work-helper.js` 这类 kebab-case 命名。
 - `src/lib/` 存放构建期共享模块，包括统一自动更新器。
 - `dist/` 存放供 Scriptable 安装及 GitHub Raw 分发的独立产物。不要手动编辑。
-- `scripts/build.mjs` 维护组件入口、元数据和版本；`scripts/test-updater.mjs` 使用 Scriptable API mock 验证更新、备份与覆盖流程。
+- `scripts/build.mjs` 维护组件入口、元数据和版本；`scripts/test-updater.mjs` 与 `scripts/test-widget-menu.mjs` 使用 Scriptable API mock 验证更新和 App 内菜单流程。
 - `image/` 存放静态资源，`.github/workflows/build.yml` 负责 CI 构建校验。
 
 ## 构建、测试与开发命令

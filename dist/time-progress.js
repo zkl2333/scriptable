@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: yellow; icon-glyph: hourglass-half;
 // @script-id time-progress
-// @version 1.0.1
+// @version 1.0.2
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -42,11 +42,11 @@ var createUpdater = ({
   checkInterval = DEFAULT_CHECK_INTERVAL
 }) => {
   const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
-  const checkForUpdate = async ({ force = false } = {}) => {
+  const checkForUpdate2 = async ({ force = false } = {}) => {
     const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
-    const now2 = Math.floor(Date.now() / 1e3);
-    if (!force && now2 - lastCheckedAt < checkInterval) return null;
-    Keychain.set(checkedAtKey, String(now2));
+    const now = Math.floor(Date.now() / 1e3);
+    if (!force && now - lastCheckedAt < checkInterval) return null;
+    Keychain.set(checkedAtKey, String(now));
     const request = new Request(`${updateURL}?t=${Date.now()}`);
     request.timeoutInterval = 10;
     const source = await request.loadString();
@@ -59,8 +59,8 @@ var createUpdater = ({
     if (compareVersions(metadata.version, version) <= 0) return null;
     return { source, version: metadata.version };
   };
-  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
-    const update = await checkForUpdate({ force: interactive });
+  const applyUpdateIfAny = async ({ interactive = false, force = interactive } = {}) => {
+    const update = await checkForUpdate2({ force });
     if (!update) return false;
     if (interactive) {
       const alert = new Alert();
@@ -85,45 +85,136 @@ var createUpdater = ({
       return false;
     }
   };
-  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
+};
+
+// src/lib/widget-menu.js
+var showMessage = async (title, message) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message;
+  alert.addAction("好");
+  await alert.presentAlert();
+};
+var checkForUpdate = async ({ updater: updater2, version }) => {
+  try {
+    const update = await updater2.checkForUpdate({ force: true });
+    if (!update) {
+      await showMessage("已是最新", `当前 v${version}`);
+      return false;
+    }
+    const confirm = new Alert();
+    confirm.title = `发现新版本 v${update.version}`;
+    confirm.message = `是否更新 ${Script.name()}？`;
+    confirm.addAction("更新");
+    confirm.addCancelAction("取消");
+    if (await confirm.presentAlert() !== 0) return false;
+    const updated = await updater2.applyUpdateIfAny({ force: true });
+    if (!updated) {
+      await showMessage("更新未完成", "远端版本已变化，请重新检查。");
+      return false;
+    }
+    await showMessage("更新完成", "脚本已更新，请重新运行。");
+    return true;
+  } catch (error) {
+    await showMessage("检查失败", String(error));
+    return false;
+  }
+};
+var shouldShowWidgetMenu = () => config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension;
+var attachMenuURL = (widget) => {
+  widget.url = URLScheme.forRunningScript();
+  return widget;
+};
+var presentWidget = async (widget, fallbackFamily = "medium") => {
+  const family = fallbackFamily;
+  if (family === "large") return widget.presentLarge();
+  if (family === "small") return widget.presentSmall();
+  return widget.presentMedium();
+};
+var selectPreviewFamilies = async () => {
+  const alert = new Alert();
+  alert.title = "预览组件";
+  alert.message = "测试桌面组件在各种尺寸下的显示效果";
+  alert.addAction("小尺寸 Small");
+  alert.addAction("中尺寸 Medium");
+  alert.addAction("大尺寸 Large");
+  alert.addAction("全部 All");
+  alert.addCancelAction("取消操作");
+  switch (await alert.presentSheet()) {
+    case 0:
+      return ["small"];
+    case 1:
+      return ["medium"];
+    case 2:
+      return ["large"];
+    case 3:
+      return ["small", "medium", "large"];
+    default:
+      return null;
+  }
+};
+var presentWidgetPreviews = async (createWidget2, families) => {
+  for (const family of families) {
+    await presentWidget(await createWidget2(family), family);
+  }
+};
+var runWidgetMenu = async ({
+  title,
+  message = "",
+  version,
+  updater: updater2,
+  actions = []
+}) => {
+  const alert = new Alert();
+  alert.title = title;
+  alert.message = message || `当前版本 v${version}`;
+  alert.addAction("预览组件");
+  actions.forEach((action) => alert.addAction(action.title));
+  alert.addAction("检查更新");
+  alert.addCancelAction("取消操作");
+  const index = await alert.presentSheet();
+  if (index === -1) return null;
+  if (index === 0) {
+    const families = await selectPreviewFamilies();
+    return families ? { action: "preview", families } : null;
+  }
+  const actionIndex = index - 1;
+  if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  await checkForUpdate({ updater: updater2, version });
+  return null;
 };
 
 // src/widgets/time-progress.js
 var updater = createUpdater({
   scriptId: "time-progress",
-  version: "1.0.1",
+  version: "1.0.2",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/time-progress.js"
 });
 await updater.autoUpdate();
-var w = new ListWidget();
-w.backgroundColor = new Color("#222222");
 var width = 300;
 var h = 4;
-var now = /* @__PURE__ */ new Date();
-var weekday = now.getDay() == 0 ? 6 : now.getDay() - 1;
-var minutes = now.getMinutes();
-if (Device.locale() == "zh_CN") {
-  getwidget(24 * 60, (now.getHours() + 1) * 60 + minutes, "今日");
-  getwidget(7, weekday + 1, "本周");
-  getwidget(30, now.getDate() + 1, "本月");
-  getwidget(12, now.getMonth() + 1, "今年");
-} else {
-  getwidget(24 * 60, (now.getHours() + 1) * 60 + minutes, "Today");
-  getwidget(7, weekday + 1, "This week");
-  getwidget(30, now.getDate() + 1, "This month");
-  getwidget(12, now.getMonth() + 1, "This year");
-}
-Script.setWidget(w);
-Script.complete();
-w.presentMedium();
-function getwidget(total, haveGone, str) {
-  const titlew = w.addText(str);
-  titlew.textColor = new Color("#e587ce");
-  titlew.font = Font.boldSystemFont(13);
-  w.addSpacer(6);
-  const imgw = w.addImage(creatProgress(total, haveGone));
-  imgw.imageSize = new Size(width, h);
-  w.addSpacer(6);
+var createWidget = () => {
+  const widget = new ListWidget();
+  widget.backgroundColor = new Color("#222222");
+  const now = /* @__PURE__ */ new Date();
+  const weekday = now.getDay() === 0 ? 6 : now.getDay() - 1;
+  const minutes = now.getMinutes();
+  const labels = Device.locale() === "zh_CN" ? ["今日", "本周", "本月", "今年"] : ["Today", "This week", "This month", "This year"];
+  addProgressRow(widget, 24 * 60, (now.getHours() + 1) * 60 + minutes, labels[0]);
+  addProgressRow(widget, 7, weekday + 1, labels[1]);
+  addProgressRow(widget, 30, now.getDate() + 1, labels[2]);
+  addProgressRow(widget, 12, now.getMonth() + 1, labels[3]);
+  return attachMenuURL(widget);
+};
+function addProgressRow(widget, total, haveGone, label) {
+  const title = widget.addText(label);
+  title.textColor = new Color("#e587ce");
+  title.font = Font.boldSystemFont(13);
+  widget.addSpacer(6);
+  const image = widget.addImage(creatProgress(total, haveGone));
+  image.imageSize = new Size(width, h);
+  widget.addSpacer(6);
 }
 function creatProgress(total, havegone) {
   const context = new DrawContext();
@@ -142,3 +233,16 @@ function creatProgress(total, havegone) {
   context.fillPath();
   return context.getImage();
 }
+if (shouldShowWidgetMenu()) {
+  const menu = await runWidgetMenu({
+    title: "时间进度",
+    version: "1.0.2",
+    updater
+  });
+  if (menu?.action === "preview") {
+    await presentWidgetPreviews(createWidget, menu.families);
+  }
+} else {
+  Script.setWidget(createWidget());
+}
+Script.complete();

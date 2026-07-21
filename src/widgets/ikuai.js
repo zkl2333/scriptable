@@ -1,4 +1,10 @@
 import { createUpdater } from '../lib/updater.js';
+import {
+  attachMenuURL,
+  presentWidgetPreviews,
+  runWidgetMenu,
+  shouldShowWidgetMenu,
+} from '../lib/widget-menu.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -381,10 +387,12 @@ class iKuai {
 
       let response = await request.loadJSON();
       if (response && response.Result == 10000) {
-        this.accessKey =
-          request.response.cookies[0].name +
-          "=" +
-          request.response.cookies[0].value;
+        const sessionCookie = request.response.cookies.find(
+          (cookie) => cookie.name === 'sess_key'
+        );
+        if (!sessionCookie) throw new Error('登录响应未提供 sess_key Cookie');
+        this.accessKey = sessionCookie.value;
+        this.username = username;
         return this.accessKey;
       } else {
         throw new Error(response);
@@ -395,8 +403,8 @@ class iKuai {
   }
 
   async exec(func, action, param, accessKey) {
-    let go_accesskey = this.accessKey || accessKey;
-    if (!go_accesskey) {
+    const sessionKey = String(this.accessKey || accessKey || '').replace(/^sess_key=/, '');
+    if (!sessionKey) {
       throw new Error("ERR_NOT_LOGGED_IN");
     }
 
@@ -406,8 +414,8 @@ class iKuai {
       let request = new Request(url);
       request.method = "POST";
       request.headers = {
-        "Content-Type": "application/json",
-        Cookie: go_accesskey,
+        "Content-Type": "application/json;charset=UTF-8",
+        Cookie: `username=${this.username || ''}; login=1; sess_key=${sessionKey}`,
       };
       request.body = JSON.stringify({
         func_name: func,
@@ -435,19 +443,21 @@ const createInfo = (str) => {
 
 // 格式化字节
 const formatBytes = (bytes, decimals = 2) => {
-  if (bytes === 0) return "0 Bytes";
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value === 0) return '0 B';
 
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
 
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(value) / Math.log(k)), sizes.length - 1);
 
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  return `${parseFloat((value / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
 // 百分比字符串平均数
 const avg = (arr) => {
+  if (!Array.isArray(arr) || arr.length === 0) return '0.00';
   const num = arr.map((item) => parseInt(item.replace("%", "")));
   const sum = num.reduce((acc, cur) => acc + cur, 0);
   return (sum / arr.length).toFixed(2);
@@ -455,17 +465,81 @@ const avg = (arr) => {
 
 // 格式化时间
 const formatTime = (time) => {
-  const seconds = time % 60;
-  const minutes = Math.floor((time / 60) % 60);
-  const hours = Math.floor(time / 3600);
+  const totalSeconds = Math.max(0, Math.floor(Number(time) || 0));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分`;
+};
 
-  return `${hours}小时${minutes}分钟${seconds}秒`;
+const getRouterError = (response) => {
+  const code = response?.code ?? response?.Result ?? response?.result ?? '未知响应';
+  const message = response?.ErrMsg || response?.Message || response?.message;
+  return message ? `接口错误 ${code}: ${message}` : `接口错误 ${code}: 未返回系统状态`;
+};
+
+const getRouterData = (response) => {
+  if (response?.code === 0) return response.results;
+  if (response?.Result === 30000) return response.Data;
+  return null;
 };
 const getKeyChain = (key) => {
   if (Keychain.contains(key)) {
     return Keychain.get(key);
   }
   return null;
+};
+
+const loadStoredInfo = () => ({
+  username: getKeyChain('ikuai_username') || '',
+  password: getKeyChain('ikuai_password') || '',
+  host: getKeyChain('ikuai_host') || '',
+  port: getKeyChain('ikuai_port') || '',
+});
+
+const saveInfo = (info) => {
+  Keychain.set('ikuai_username', info.username);
+  Keychain.set('ikuai_password', info.password);
+  Keychain.set('ikuai_host', info.host);
+  Keychain.set('ikuai_port', info.port);
+};
+
+const configureRouter = async () => {
+  const current = loadStoredInfo();
+  const alert = new Alert();
+  alert.title = '设置爱快路由器信息';
+  alert.addTextField('username', current.username);
+  if (typeof alert.addSecureTextField === 'function') {
+    alert.addSecureTextField('password', current.password);
+  } else {
+    alert.addTextField('password', current.password);
+  }
+  alert.addTextField('host', current.host);
+  alert.addTextField('port', current.port);
+  alert.addAction('保存');
+  alert.addCancelAction('取消');
+  if ((await alert.presentAlert()) !== 0) return null;
+
+  const info = {
+    username: alert.textFieldValue(0).trim(),
+    password: alert.textFieldValue(1),
+    host: alert.textFieldValue(2).trim(),
+    port: alert.textFieldValue(3).trim(),
+  };
+  saveInfo(info);
+  return info;
+};
+
+const getWidgetInfo = () => {
+  const parameter = String(args.widgetParameter || '').trim();
+  const info = parameter ? createInfo(parameter) : loadStoredInfo();
+  if (!info.username || !info.password || !info.host || !info.port) {
+    throw new Error('请先在 Scriptable App 内运行脚本，完成爱快路由器配置');
+  }
+  saveInfo(info);
+  return info;
 };
 
 // 绘制环形进度条
@@ -493,7 +567,7 @@ function drawCircularProgress({
   );
 
   // 绘制进度部分
-  const deg = Math.floor(360 * progress); // 将进度转换为角度
+  const deg = Math.floor(360 * Math.min(Math.max(Number(progress) || 0, 0), 1)); // 将进度转换为角度
   const canvWidth = lineWidth; // 使用进度条的宽度作为小圆的直径
 
   for (let t = 0; t < deg; t++) {
@@ -528,7 +602,7 @@ function drawCircularProgress({
   return ctx.getImage();
 }
 
-async function createWidget(info) {
+async function createWidget(info, family = config.widgetFamily || 'medium') {
   const widget = new ListWidget();
   widget.backgroundColor = new Color("#333333");
   widget.useDefaultPadding();
@@ -540,6 +614,39 @@ async function createWidget(info) {
     const sysstat = await myRouter.exec("homepage", "show", {
       TYPE: "sysstat",
     });
+
+    const stats = getRouterData(sysstat)?.sysstat;
+    if (!stats) {
+      console.log(JSON.stringify(sysstat));
+      throw new Error(getRouterError(sysstat));
+    }
+    const stream = stats.stream || {};
+    const cpu = avg(stats.cpu);
+    const memory = parseInt(String(stats.memory?.used || '0%').replace("%", "")) || 0;
+
+    if (family === 'small') {
+      const title = widget.addText('爱快路由器');
+      title.font = Font.boldSystemFont(16);
+      title.textColor = new Color('#FCFCFC');
+      widget.addSpacer(6);
+
+      const usage = widget.addText(`CPU ${cpu}%  ·  内存 ${memory}%`);
+      usage.font = Font.systemFont(13);
+      usage.textColor = new Color('#FFB444');
+      widget.addSpacer(5);
+
+      const rate = widget.addText(
+        `↑ ${formatBytes(stream.upload)}/s\n↓ ${formatBytes(stream.download)}/s`
+      );
+      rate.font = Font.mediumSystemFont(14);
+      rate.textColor = new Color('#FCFCFC');
+      widget.addSpacer();
+
+      const footer = widget.addText(`在线 ${formatTime(stream.uptime)}`);
+      footer.font = Font.systemFont(11);
+      footer.textColor = new Color('#A8B0C0');
+      return attachMenuURL(widget);
+    }
 
     const stack = widget.addStack();
     stack.centerAlignContent();
@@ -559,27 +666,40 @@ async function createWidget(info) {
     logoStack.addSpacer(5);
     logoStack.addText("爱快").textColor = new Color("#FCFCFC");
 
-    subStack.addSpacer(20);
+    subStack.addSpacer(10);
 
     const uploadText = subStack.addText(
-      `↑ ${formatBytes(sysstat.Data.sysstat.stream.total_up)}`
+      `累计上传  ${formatBytes(stream.total_up)}`
     );
     uploadText.textColor = new Color("#FCFCFC"); // 设置文本颜色为白色
     uploadText.centerAlignText(); // 文本居中对齐
 
-    subStack.addSpacer(5);
+    subStack.addSpacer(4);
 
     const downloadText = subStack.addText(
-      `↓ ${formatBytes(sysstat.Data.sysstat.stream.total_down)}`
+      `累计下载  ${formatBytes(stream.total_down)}`
     );
     downloadText.textColor = new Color("#FCFCFC"); // 设置文本颜色为白色
     downloadText.centerAlignText(); // 文本居中对齐
-    subStack.addSpacer(35);
+    subStack.addSpacer(8);
+
+    const rateText = subStack.addText(
+      `↑ ${formatBytes(stream.upload)}/s\n↓ ${formatBytes(stream.download)}/s`
+    );
+    rateText.font = Font.mediumSystemFont(12);
+    rateText.textColor = new Color('#A8B0C0');
+    rateText.lineLimit = 2;
+
+    subStack.addSpacer(6);
+    const uptimeText = subStack.addText(`在线 ${formatTime(stream.uptime)}`);
+    uptimeText.font = Font.systemFont(10);
+    uptimeText.textColor = new Color('#A8B0C0');
+    uptimeText.lineLimit = 1;
 
     stack.addSpacer(10);
 
     // CPU 环形进度条
-    const cpu = avg(sysstat.Data.sysstat.cpu);
+    const ringSize = family === 'large' ? 118 : 88;
     const cpuImg = drawCircularProgress({
       center: new Point(100, 100),
       radius: 80,
@@ -593,7 +713,6 @@ async function createWidget(info) {
     });
 
     // 内存环形进度条
-    const memory = parseInt(sysstat.Data.sysstat.memory.used.replace("%", ""));
     const memoryImg = drawCircularProgress({
       center: new Point(100, 100),
       radius: 80,
@@ -606,55 +725,62 @@ async function createWidget(info) {
       textColor: new Color("#FCFCFC"),
     });
 
-    stack.addImage(cpuImg);
-    stack.addSpacer(10);
-    stack.addImage(memoryImg);
+    const cpuImage = stack.addImage(cpuImg);
+    cpuImage.imageSize = new Size(ringSize, ringSize);
+    stack.addSpacer(8);
+    const memoryImage = stack.addImage(memoryImg);
+    memoryImage.imageSize = new Size(ringSize, ringSize);
   } catch (error) {
-    widget.addText("获取数据失败");
+    const title = widget.addText('爱快数据获取失败');
+    title.font = Font.boldSystemFont(14);
+    title.textColor = new Color('#F15A4B');
+    widget.addSpacer(6);
+    const message = widget.addText(error.message || '未知错误');
+    message.font = Font.systemFont(11);
+    message.textColor = new Color('#FCFCFC');
+    message.minimumScaleFactor = 0.65;
     console.log(error);
-    throw error;
   }
 
-  return widget;
+  return attachMenuURL(widget);
 }
 
-if (config.runsInApp) {
-  // 弹窗请求输入参数
-  const username = getKeyChain("ikuai_username") || "";
-  const password = getKeyChain("ikuai_password") || "";
-  const host = getKeyChain("ikuai_host") || "";
-  const port = getKeyChain("ikuai_port") || "";
+if (shouldShowWidgetMenu()) {
+  for (;;) {
+    const action = await runWidgetMenu({
+      title: '爱快路由器',
+      version: __SCRIPT_VERSION__,
+      updater,
+      actions: [
+        {
+          id: 'settings',
+          icon: '⚙',
+          title: '配置路由器',
+          subtitle: '保存用户名、密码、地址和端口',
+        },
+      ],
+    });
+    if (!action) break;
 
-  const alert = new Alert();
-  alert.title = "设置爱快路由器信息";
-  alert.addTextField("username", username);
-  alert.addSecureTextField("password", password);
-  alert.addTextField("host", host);
-  alert.addTextField("port", port);
-  alert.addAction("确定");
-  alert.addCancelAction("取消");
-  const number = await alert.present();
-  if (number === 0) {
-    const username = alert.textFieldValue(0);
-    const password = alert.textFieldValue(1);
-    const host = alert.textFieldValue(2);
-    const port = alert.textFieldValue(3);
-    Keychain.set("ikuai_username", username);
-    Keychain.set("ikuai_password", password);
-    Keychain.set("ikuai_host", host);
-    Keychain.set("ikuai_port", port);
-    const info = { host, port, username, password };
-    const widget = await createWidget(info);
-    widget.presentMedium();
+    if (action.action === 'settings') {
+      const info = await configureRouter();
+      if (info) await presentWidgetPreviews((family) => createWidget(info, family), ['medium']);
+      break;
+    }
+
+    if (action.action === 'preview') {
+      let info = loadStoredInfo();
+      if (!info.username || !info.password || !info.host || !info.port) {
+        info = await configureRouter();
+      }
+      if (info) {
+        await presentWidgetPreviews((family) => createWidget(info, family), action.families);
+      }
+      break;
+    }
   }
 } else {
-  const { host, port, username, password } = createInfo(args.widgetParameter);
-  Keychain.set("ikuai_username", username);
-  Keychain.set("ikuai_password", password);
-  Keychain.set("ikuai_host", host);
-  Keychain.set("ikuai_port", port);
-  const widget = await createWidget({ host, port, username, password });
-  Script.setWidget(widget);
+  Script.setWidget(await createWidget(getWidgetInfo()));
 }
 
 Script.complete();
