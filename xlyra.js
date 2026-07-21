@@ -3,13 +3,17 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.3
+// @version 1.4.4
 // ==========================================
 //
-// 【首次配置】在 Scriptable 里本脚本最下方点「运行」一次:
+// 【首次配置】在 Scriptable 里运行一次脚本:
 //   依次输入 后端地址 + Admin Access Token, 自动存入 Keychain,
 //   并发起一次真实请求验证, 验证失败会提示且不会保存。
-//   想换凭证? 再运行一次即可覆盖。
+//   想换凭证? 运行脚本 → 菜单里选「重新配置凭证」即可覆盖。
+//
+// 【App 内运行 = 菜单】在 Scriptable 里点运行会弹出菜单 sheet:
+//   刷新预览 / 重新配置凭证 / 检查更新。
+//   桌面组件后台刷新时不会弹菜单, 只渲染。
 //
 // 【自动更新】脚本内置自更新: 添加到桌面组件后,
 //   每次刷新都会比对 GitHub 上的 @version, 有新版本会在
@@ -26,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.3", // 当前版本(与 @version 保持一致)
+  version: "1.4.4", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -700,31 +704,39 @@ async function runSetup() {
   await done.presentAlert();
 }
 
+// 返回值: true = 继续往下渲染预览, false = 直接结束
 async function runMenu() {
-  const menu = new Alert();
-  menu.title = "XLYRA // 控制台";
-  menu.message = `v${CONFIG.version}`;
-  menu.addAction("重新配置凭证");
-  menu.addAction("检查更新");
-  menu.addAction("刷新预览");
-  menu.addCancelAction("关闭");
-  // presentSheet 是较新的 API, 老版本回退到 presentAlert
-  const idx = typeof menu.presentSheet === "function" ? await menu.presentSheet() : await menu.presentAlert();
-  if (idx === 0) await runSetup();
-  else if (idx === 1) {
-    const updated = await applyUpdateIfAny({ interactive: true });
-    if (!updated) {
+  for (;;) {
+    const menu = new Alert();
+    menu.title = "XLYRA // 控制台";
+    menu.message = `v${CONFIG.version}`;
+    menu.addAction("刷新预览");
+    menu.addAction("重新配置凭证");
+    menu.addAction("检查更新");
+    menu.addCancelAction("关闭");
+    // presentSheet 是较新的 API, 老版本回退到 presentAlert
+    const idx = typeof menu.presentSheet === "function" ? await menu.presentSheet() : await menu.presentAlert();
+    if (idx === -1) return false; // 关闭
+    if (idx === 0) return true; // 刷新预览
+    if (idx === 1) {
+      await runSetup();
+      return true;
+    }
+    if (idx === 2) {
+      const updated = await applyUpdateIfAny({ interactive: true });
       const a = new Alert();
+      if (updated) {
+        a.title = "更新完成";
+        a.message = "脚本已更新, 请重新运行。";
+        a.addAction("好");
+        await a.presentAlert();
+        return false;
+      }
       a.title = "已是最新";
       a.message = `当前 v${CONFIG.version}`;
       a.addAction("好");
       await a.presentAlert();
-    } else {
-      const a = new Alert();
-      a.title = "更新完成";
-      a.message = "脚本已更新, 请重新运行。";
-      a.addAction("好");
-      await a.presentAlert();
+      // 回到菜单
     }
   }
 }
@@ -764,62 +776,65 @@ function fmtTime(ts) {
 // ==========================================
 // 入口
 // ==========================================
-const { baseURL: _u, adminToken: _t } = loadAuth();
-if (config.runsInApp && !_u && !_t) {
-  await runSetup();
-} else if (config.runsInApp && config.runsWithSiri === false && args.queryParameters.action === "menu") {
-  await runMenu();
+// App 内运行: 未配置 → 配置向导; 已配置 → 弹出菜单 sheet(预览在菜单里)
+let proceedToRender = true;
+if (config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension) {
+  const { baseURL: _u, adminToken: _t } = loadAuth();
+  if (!_u || !_t) await runSetup();
+  else proceedToRender = await runMenu();
 }
 
-let data;
-try {
-  data = await loadData();
-} catch (e) {
-  data = { configured: true, error: String(e) };
-}
+if (proceedToRender) {
+  let data;
+  try {
+    data = await loadData();
+  } catch (e) {
+    data = { configured: true, error: String(e) };
+  }
 
-const family = config.widgetFamily || "small";
-const w = new ListWidget();
-w.setPadding(16, 14, 16, 14);
-w.backgroundImage = dotGrid(family);
-const now = new Date();
-const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
+  const family = config.widgetFamily || "small";
+  const w = new ListWidget();
+  w.setPadding(16, 14, 16, 14);
+  w.backgroundImage = dotGrid(family);
+  const now = new Date();
+  const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
 
-if (!data.configured) {
-  const t1 = w.addText("▪ XLYRA");
-  t1.font = MONO_B;
-  t1.textColor = C.fg;
-  w.addSpacer(8);
-  const t2 = w.addText("NOT CONFIGURED");
-  t2.font = MONO_B;
-  t2.textColor = C.amber;
-  w.addSpacer(4);
-  const t3 = w.addText("在 Scriptable 中运行脚本\n完成凭证配置");
-  t3.font = MONO_SM;
-  t3.textColor = C.dim;
-} else if (data.error) {
-  const t1 = w.addText("▪ XLYRA // ERROR");
-  t1.font = MONO_B;
-  t1.textColor = C.red;
-  w.addSpacer(8);
-  const t2 = w.addText(trunc(data.error, 60));
-  t2.font = MONO_SM;
-  t2.textColor = C.dim;
-  w.addSpacer();
-  const t3 = w.addText(time);
-  t3.font = MONO_SM;
-  t3.textColor = C.dim;
-} else {
-  if (family === "medium") renderMedium(w, data, time);
-  else if (family === "large") renderLarge(w, data, time);
-  else renderSmall(w, data, time);
-}
+  if (!data.configured) {
+    const t1 = w.addText("▪ XLYRA");
+    t1.font = MONO_B;
+    t1.textColor = C.fg;
+    w.addSpacer(8);
+    const t2 = w.addText("NOT CONFIGURED");
+    t2.font = MONO_B;
+    t2.textColor = C.amber;
+    w.addSpacer(4);
+    const t3 = w.addText("在 Scriptable 中运行脚本\n完成凭证配置");
+    t3.font = MONO_SM;
+    t3.textColor = C.dim;
+  } else if (data.error) {
+    const t1 = w.addText("▪ XLYRA // ERROR");
+    t1.font = MONO_B;
+    t1.textColor = C.red;
+    w.addSpacer(8);
+    const t2 = w.addText(trunc(data.error, 60));
+    t2.font = MONO_SM;
+    t2.textColor = C.dim;
+    w.addSpacer();
+    const t3 = w.addText(time);
+    t3.font = MONO_SM;
+    t3.textColor = C.dim;
+  } else {
+    if (family === "medium") renderMedium(w, data, time);
+    else if (family === "large") renderLarge(w, data, time);
+    else renderSmall(w, data, time);
+  }
 
-if (config.runsInApp) {
-  if (family === "large") await w.presentLarge();
-  else if (family === "medium") await w.presentMedium();
-  else await w.presentSmall();
-} else {
-  Script.setWidget(w);
+  if (config.runsInApp) {
+    if (family === "large") await w.presentLarge();
+    else if (family === "medium") await w.presentMedium();
+    else await w.presentSmall();
+  } else {
+    Script.setWidget(w);
+  }
 }
 Script.complete();
