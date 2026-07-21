@@ -197,45 +197,202 @@ const setRefreshAfterDate = (widget, todayInfo) => {
   }
 };
 
-const addCountdown = (widget, countdown, secondary = false) => {
+const COLORS = {
+  // 工作/进度用沉稳的青蓝，假期提示用暖琥珀，底色保持中性
+  work: Color.dynamic(new Color('#0F766E'), new Color('#4FD1C5')),
+  workSoft: Color.dynamic(new Color('#E1EFED'), new Color('#1E3532')),
+  holiday: Color.dynamic(new Color('#C26A0A'), new Color('#F2B155')),
+  holidaySoft: Color.dynamic(new Color('#F7EDDD'), new Color('#38301F')),
+  text: Color.dynamic(new Color('#1C1E21'), new Color('#F2F3F5')),
+  subtext: Color.dynamic(new Color('#6E7478'), new Color('#9BA1A6')),
+  track: Color.dynamic(new Color('#E3E6E8'), new Color('#33373B')),
+};
+
+const METRICS = {
+  small: { hero: 26, barWidth: 118, showHoliday: false },
+  medium: { hero: 32, barWidth: 290, showHoliday: true },
+  large: { hero: 36, barWidth: 290, showHoliday: true },
+};
+
+const WEEKDAYS = '日一二三四五六';
+
+const PHASES = {
+  beforeWork: { label: '待上班', symbol: 'sunrise.fill' },
+  working: { label: '工作中', symbol: 'sun.max.fill' },
+  afterWork: { label: '已下班', symbol: 'moon.stars.fill' },
+  rest: { label: '休息日', symbol: 'cup.and.saucer.fill' },
+};
+
+const getPhase = (todayInfo) => {
+  if (!todayInfo.isWorkDay) return 'rest';
+  if (nowDate < startDate) return 'beforeWork';
+  if (nowDate < endDate) return 'working';
+  return 'afterWork';
+};
+
+const addHeader = (widget, phase) => {
+  const header = widget.addStack();
+  header.centerAlignContent();
+
+  const info = PHASES[phase];
+  const icon = header.addImage(SFSymbol.named(info.symbol).image);
+  icon.imageSize = new Size(14, 14);
+  icon.tintColor = COLORS.work;
+  header.addSpacer(6);
+
+  const dateText = header.addText(
+    `${nowDate.getMonth() + 1}月${nowDate.getDate()}日 周${WEEKDAYS[nowDate.getDay()]}`
+  );
+  dateText.font = Font.mediumSystemFont(12);
+  dateText.textColor = COLORS.subtext;
+  dateText.lineLimit = 1;
+
+  header.addSpacer();
+
+  const pill = header.addStack();
+  pill.setPadding(3, 10, 3, 10);
+  pill.backgroundColor = COLORS.workSoft;
+  pill.cornerRadius = 10;
+  const pillText = pill.addText(info.label);
+  pillText.font = Font.semiboldSystemFont(11);
+  pillText.textColor = COLORS.work;
+};
+
+const addHero = (widget, countdown, metrics) => {
   const title = widget.addText(countdown.title);
-  title.font = Font.boldSystemFont(secondary ? 14 : 18);
-  title.centerAlignText();
+  title.textColor = COLORS.subtext;
+  title.lineLimit = 1;
 
   if (countdown.date) {
-    const date = widget.addDate(countdown.date);
-    date.font = Font.boldSystemFont(secondary ? 16 : 20);
+    title.font = Font.mediumSystemFont(13);
+    widget.addSpacer(2);
+    const time = widget.addDate(countdown.date);
+    time.font = Font.boldSystemFont(metrics.hero);
+    time.textColor = COLORS.text;
+    time.applyRelativeStyle();
+    time.minimumScaleFactor = 0.6;
+  } else {
+    // 假期中没有目标时间，标题即主体
+    title.font = Font.boldSystemFont(metrics.hero - 8);
+    title.textColor = COLORS.text;
+    title.minimumScaleFactor = 0.7;
+  }
+};
+
+const addProgress = (widget, metrics) => {
+  const total = endDate - startDate;
+  const pct = Math.min(Math.max((nowDate - startDate) / total, 0), 1);
+
+  const bar = widget.addStack();
+  bar.size = new Size(metrics.barWidth, 8);
+  bar.cornerRadius = 4;
+  bar.backgroundColor = COLORS.track;
+  const fill = bar.addStack();
+  fill.size = new Size(Math.max(8, Math.round(metrics.barWidth * pct)), 8);
+  fill.cornerRadius = 4;
+  fill.backgroundColor = COLORS.work;
+
+  widget.addSpacer(6);
+  const label = widget.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
+  label.font = Font.mediumSystemFont(11);
+  label.textColor = COLORS.subtext;
+};
+
+const addHolidayCard = (widget, holiday) => {
+  const card = widget.addStack();
+  card.setPadding(8, 12, 8, 12);
+  card.backgroundColor = COLORS.holidaySoft;
+  card.cornerRadius = 12;
+  card.centerAlignContent();
+
+  const icon = card.addImage(SFSymbol.named('airplane').image);
+  icon.imageSize = new Size(16, 16);
+  icon.tintColor = COLORS.holiday;
+  card.addSpacer(8);
+
+  const content = card.addStack();
+  content.layoutVertically();
+  const title = content.addText(holiday.title);
+  title.font = Font.mediumSystemFont(11);
+  title.textColor = COLORS.subtext;
+  title.lineLimit = 1;
+  title.minimumScaleFactor = 0.8;
+
+  if (holiday.date) {
+    content.addSpacer(2);
+    const date = content.addDate(holiday.date);
+    date.font = Font.semiboldSystemFont(15);
+    date.textColor = COLORS.text;
     date.applyRelativeStyle();
-    date.centerAlignText();
+    date.minimumScaleFactor = 0.7;
   }
 };
 
 const createWidget = async () => {
   const widget = new ListWidget();
-  widget.spacing = 8;
+  const widgetFamily = config.widgetFamily || 'medium';
+  const metrics = METRICS[widgetFamily] || METRICS.medium;
+
+  const gradient = new LinearGradient();
+  gradient.colors = [
+    Color.dynamic(new Color('#FAFAF8'), new Color('#161719')),
+    Color.dynamic(new Color('#EEF0F1'), new Color('#222426')),
+  ];
+  gradient.locations = [0, 1];
+  gradient.startPoint = new Point(0, 0);
+  gradient.endPoint = new Point(1, 1);
+  widget.backgroundGradient = gradient;
+  widget.setPadding(14, 16, 14, 16);
 
   try {
     const todayInfo = await getTodayInfo();
     const workCountdown = await getWorkCountdown(todayInfo);
     setRefreshAfterDate(widget, todayInfo);
-    addCountdown(widget, workCountdown);
+    const phase = getPhase(todayInfo);
 
-    const widgetFamily = config.widgetFamily || 'medium';
-    if (widgetFamily !== 'small') {
+    addHeader(widget, phase);
+    widget.addSpacer();
+    addHero(widget, workCountdown, metrics);
+
+    if (phase === 'working') {
+      widget.addSpacer(10);
+      addProgress(widget, metrics);
+    }
+
+    if (metrics.showHoliday) {
+      let holidayCountdown = null;
       try {
-        const holidayCountdown = await getHolidayCountdown();
-        if (holidayCountdown) {
-          widget.addSpacer(4);
-          addCountdown(widget, holidayCountdown, true);
-        }
+        holidayCountdown = await getHolidayCountdown();
       } catch {
         // 假期信息是次要内容，加载失败时仍保留上班倒计时
       }
+      if (holidayCountdown) {
+        widget.addSpacer();
+        addHolidayCard(widget, holidayCountdown);
+      }
+    }
+
+    if (widgetFamily === 'large') {
+      widget.addSpacer(8);
+      const footer = widget.addText(
+        `工作时间 ${pad2(WORK_HOURS.start.hour)}:${pad2(WORK_HOURS.start.minute)} – ${pad2(WORK_HOURS.end.hour)}:${pad2(WORK_HOURS.end.minute)}`
+      );
+      footer.font = Font.systemFont(10);
+      footer.textColor = COLORS.subtext;
     }
   } catch (error) {
+    widget.addSpacer();
+    const icon = widget.addImage(
+      SFSymbol.named('exclamationmark.triangle.fill').image
+    );
+    icon.imageSize = new Size(24, 24);
+    icon.tintColor = COLORS.work;
+    widget.addSpacer(6);
     const errorText = widget.addText(error.message || '数据加载失败');
-    errorText.font = Font.boldSystemFont(18);
-    errorText.centerAlignText();
+    errorText.font = Font.mediumSystemFont(13);
+    errorText.textColor = COLORS.text;
+    errorText.minimumScaleFactor = 0.7;
+    widget.addSpacer();
   }
 
   return widget;
