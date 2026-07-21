@@ -1,117 +1,217 @@
 // ==========================================
-// xLyra 监控面板 Scriptable 小组件
-// 支持: Small / Medium / Large
+// xLyra 看板 Scriptable 小组件(Admin Token 版)
+// @version 1.1.0
+// 支持: Small / Medium / Large,深浅色自适应
+//
+// 数据源(全部使用 X-Access-Token,xlyra-admin-…):
+//   dashboard/usage · dashboard/epaper-summary · health/sites
+//   api-keys · oauth/connections · dashboard/cooldowns
+//
+// 自适应展示:
+//   · 有 OAuth 账号 → 显示 5h/7d 配额面板、OAuth 账号卡片
+//   · 无 OAuth 账号 → 不显示任何 OAuth 区块,空间让给站点健康/模型成本
+//   · 无站点 / 无模型成本 → 对应区块同样自动隐藏
+//
+// 自我更新:
+//   把脚本发布到可直链访问的位置(如 GitHub Raw),填入 CONFIG.updateURL,
+//   在 App 内运行时会比对 @version,有新版本弹窗确认后覆盖自身。
+//
+// 凭证录入三选一:
+//   1. 长按 Widget → Edit Widget → Parameter 填  https://host[:port][/v1]@xlyra-admin-xxxx
+//   2. 在 Scriptable App 内直接运行脚本,弹 Alert 输入
+//   3. App 内运行并传 Run Script Arg,格式同上
+// baseURL 末尾带不带 /v1 都可以,脚本会自动归一化。
+// 凭证存 iOS Keychain,不随 iCloud 同步,可放心 git push。
 // ==========================================
 
 // ---------------- 配置（非敏感）----------------
 const CONFIG = {
-  refreshMinutes: 5,
-  mediumSiteLimit: 4,
-  largeSiteLimit: 6,
-  largeAttentionLimit: 3,
+  refreshMinutes: 10,    // 刷新间隔(分钟)
+  mediumSiteLimit: 4,    // Medium 站点列表行数上限(无 OAuth 时)
+  largeSiteLimit: 5,     // Large 站点列表行数上限
+  largeOAuthLimit: 2,    // Large OAuth 账号卡片上限
+  version: "1.1.0",      // 当前版本(与头部 @version 保持一致)
+  updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js",
 };
 
-// 敏感配置（baseURL / accessToken）从 Keychain 读取，三种方式录入：
-//   1. 长按 Widget → Edit Widget → Parameter 填  http://192.168.1.10:5800@xlyra-admin-xxxx
-//   2. 在 Scriptable App 内直接运行脚本，会弹 Alert 输入
-//   3. 在脚本 App 内运行并传 Run Script Arg，参数同上格式
-//
-// Keychain 是 iOS 安全存储，不会随 iCloud Drive 的 .js 文件同步出去，可放心 git push。
 const KC = {
   baseURL: "xlyra_base_url",
   token: "xlyra_access_token",
 };
 
-// ---------------- 主题 ----------------
-const now = new Date();
-const WIDGET_SIZE = config.widgetFamily || "medium";
+// ---------------- 主题（深浅色自适应）----------------
 const isDark = Device.isUsingDarkAppearance();
-
-const C = {
-  bgStart: isDark ? new Color("#0b1120") : new Color("#f8fafc"),
-  bgEnd:   isDark ? new Color("#1e293b") : new Color("#eef2ff"),
-  primary:   isDark ? new Color("#f1f5f9") : new Color("#0f172a"),
-  secondary: isDark ? new Color("#94a3b8") : new Color("#64748b"),
-  muted:     isDark ? new Color("#64748b") : new Color("#94a3b8"),
-  accent:  new Color("#3b82f6"),
-  online:  new Color("#10b981"),
-  warning: new Color("#f59e0b"),
-  offline: new Color("#ef4444"),
-  unknown: new Color("#6b7280"),
-  card: isDark ? new Color("#1e293b", 0.6) : new Color("#ffffff", 0.85),
-  cardBorder: isDark ? new Color("#334155") : new Color("#e2e8f0"),
-  badgeBg: isDark ? new Color("#334155", 0.7) : new Color("#f1f5f9"),
+const C = isDark ? {
+  bg: new Color("#0d0f14"),
+  bgTop: new Color("#181b22"),
+  panel: new Color("#171a20"),
+  panel3: new Color("#101216"),
+  stroke: new Color("#2b303a"),
+  track: new Color("#353944"),
+  text: Color.white(),
+  sub: new Color("#a4a9b6"),
+  dim: new Color("#6f7684"),
+  green: new Color("#18d49a"),
+  greenBg: new Color("#0c342b"),
+  yellow: new Color("#ffba31"),
+  yellowBg: new Color("#3b2b11"),
+  red: new Color("#ff4d57"),
+  redBg: new Color("#39171b"),
+  blue: new Color("#2878ff"),
+  blueBg: new Color("#10284f"),
+  pink: new Color("#ff4fa3"),
+  pinkBg: new Color("#3a1830"),
+  cyan: new Color("#29c7ff"),
+} : {
+  bg: new Color("#f2f3f7"),
+  bgTop: new Color("#ffffff"),
+  panel: new Color("#ffffff"),
+  panel3: new Color("#eef0f4"),
+  stroke: new Color("#e2e4ea"),
+  track: new Color("#d9dce3"),
+  text: new Color("#16181d"),
+  sub: new Color("#5b6270"),
+  dim: new Color("#9aa0ad"),
+  green: new Color("#0da678"),
+  greenBg: new Color("#d9f5ea"),
+  yellow: new Color("#d99600"),
+  yellowBg: new Color("#fbeecd"),
+  red: new Color("#e03540"),
+  redBg: new Color("#fddfe1"),
+  blue: new Color("#1f6bff"),
+  blueBg: new Color("#dce9ff"),
+  pink: new Color("#e53d90"),
+  pinkBg: new Color("#fbdff0"),
+  cyan: new Color("#0fa8d8"),
 };
 
+const WIDGET_SIZE = config.widgetFamily || "medium";
+
 // ---------------- 格式化 ----------------
-const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
-function k(n) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+const pad2 = (n) => String(n).padStart(2, "0");
+const time = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const monthDayTime = (d) => `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${time(d)}`;
+const pct = (n) => `${Math.round(n * 100)}%`;
+
+function compact(n) {
+  if (n == null) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".0", "")}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(".0", "")}K`;
   return `${n}`;
 }
-function money(v, currency = "USD") {
-  const sym = currency === "USD" ? "$" : "";
-  if (v == null || v === 0) return `${sym}0`;
-  if (v < 0.01) return `${sym}<0.01`;
-  if (v < 1) return `${sym}${v.toFixed(3)}`;
-  if (v < 100) return `${sym}${v.toFixed(2)}`;
-  return `${sym}${Math.round(v)}`;
+function money(n) {
+  if (n == null) return "—";
+  return n >= 1 ? n.toFixed(2) : n.toFixed(4).replace(/0+$/, "0");
 }
-function shortName(s, max = 9) {
-  if (!s) return "-";
-  // 中文按 1.7,英文按 1
-  let len = 0, out = "";
-  for (const ch of s) {
-    const w = /[一-龥]/.test(ch) ? 1.7 : 1;
-    if (len + w > max) return out + "…";
-    out += ch;
-    len += w;
+function short(s, n) {
+  s = String(s ?? "");
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+function resetLabel(reset) {
+  if (!reset || reset === "--") return "待同步";
+  const d = reset instanceof Date ? reset : new Date(reset);
+  if (Number.isNaN(d.getTime())) return String(reset);
+  const diff = d.getTime() - Date.now();
+  if (diff <= 0) return "待重置";
+  const minutes = Math.ceil(diff / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  return `${minutes}m`;
+}
+function resetDateLabel(reset) {
+  if (!reset || reset === "--") return "待同步";
+  const d = reset instanceof Date ? reset : new Date(reset);
+  if (Number.isNaN(d.getTime())) return String(reset);
+  return `${monthDayTime(d)} 重置`;
+}
+
+// ---------------- 宽容取值 ----------------
+function val(obj, path) {
+  let cur = obj;
+  for (const p of String(path).split(".")) {
+    if (!cur || typeof cur !== "object") return null;
+    cur = cur[p];
   }
-  return out;
+  return cur ?? null;
+}
+function str(obj, ...keys) {
+  for (const k of keys) {
+    const v = val(obj, k);
+    if (v !== null && v !== undefined && String(v).trim()) return String(v).trim();
+  }
+  return null;
+}
+function num(obj, ...keys) {
+  for (const k of keys) {
+    const v = val(obj, k);
+    if (typeof v === "number") return v;
+    if (typeof v === "string" && v.trim() && !Number.isNaN(Number(v))) return Number(v);
+  }
+  return null;
+}
+function int(obj, ...keys) {
+  const n = num(obj, ...keys);
+  return n === null ? null : Math.round(n);
+}
+function bool(obj, ...keys) {
+  for (const k of keys) {
+    const v = val(obj, k);
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+  }
+  return null;
+}
+function rows(v) {
+  if (Array.isArray(v)) return v;
+  if (!v || typeof v !== "object") return [];
+  for (const k of ["items", "data", "rows", "connections", "sites", "api_keys"]) {
+    if (Array.isArray(v[k])) return v[k];
+    const nested = rows(v[k]);
+    if (nested.length) return nested;
+  }
+  return [];
+}
+function percentValue(n) {
+  return n === null || n === undefined ? null : Math.round(Math.max(0, Math.min(100, n <= 1 && n > 0 ? n * 100 : n)));
 }
 
 // ---------------- 配置加载 ----------------
-// 优先级：widgetParameter / args.queryParameters > Keychain > 弹 Alert（仅 App 模式）
-function parseConnStr(str) {
-  // 支持  http(s)://host:port@token  或  http(s)://host:port|token
-  if (!str) return null;
-  const m = String(str).trim().match(/^(https?:\/\/[^@|\s]+)[@|]\s*(\S+)$/);
+function parseConnStr(s) {
+  if (!s) return null;
+  const m = String(s).trim().match(/^(https?:\/\/[^@|\s]+)[@|]\s*(\S+)$/);
   if (!m) return null;
-  return { baseURL: m[1].replace(/\/+$/, ""), token: m[2] };
+  return { baseURL: normalizeBase(m[1]), token: m[2] };
 }
-
-async function promptForConfig(prefill) {
+function normalizeBase(u) {
+  return String(u).replace(/\/+$/, "").replace(/\/(api\/v1|v1)$/i, "");
+}
+async function promptForConfig() {
   const a = new Alert();
   a.title = "xLyra 配置";
-  a.message = "首次使用请填写后端地址和 Access Token";
-  a.addTextField("baseURL  例: http://192.168.1.10:5800", prefill?.baseURL || "");
-  a.addSecureTextField("Access Token", prefill?.token || "");
+  a.message = "填写后端地址和 Admin Token(xlyra-admin-…)";
+  a.addTextField("baseURL  例: https://ai-api.example.com", "");
+  a.addSecureTextField("Admin Token", "");
   a.addAction("保存");
   a.addCancelAction("取消");
   const idx = await a.presentAlert();
   if (idx === -1) return null;
-  const baseURL = a.textFieldValue(0).trim().replace(/\/+$/, "");
+  const baseURL = normalizeBase(a.textFieldValue(0).trim());
   const token = a.textFieldValue(1).trim();
   if (!baseURL || !token) return null;
   return { baseURL, token };
 }
-
 async function loadConfig() {
-  // 1. widgetParameter（长按 widget → Edit Widget → Parameter）
   const wp = parseConnStr(args.widgetParameter);
   if (wp) {
     Keychain.set(KC.baseURL, wp.baseURL);
     Keychain.set(KC.token, wp.token);
     return wp;
   }
-
-  // 2. Keychain
   if (Keychain.contains(KC.baseURL) && Keychain.contains(KC.token)) {
     return { baseURL: Keychain.get(KC.baseURL), token: Keychain.get(KC.token) };
   }
-
-  // 3. App 模式弹 Alert；Widget 模式直接返回 null（渲染时给提示）
   if (!config.runsInWidget) {
     const cfg = await promptForConfig();
     if (cfg) {
@@ -125,578 +225,682 @@ async function loadConfig() {
 
 let RUNTIME = { baseURL: "", token: "" };
 
-// ---------------- API ----------------
-async function xlyraFetch(path) {
-  const req = new Request(`${RUNTIME.baseURL}${path}`);
-  req.headers = {
-    "X-Access-Token": RUNTIME.token,
-    "Accept": "application/json",
-  };
-  req.timeoutInterval = 10;
+// ---------------- 自我更新 ----------------
+// 原理(Honye/scriptable-scripts 的 updateCode):脚本本体就是文件,
+// 用 FileManager 把远程源码写回 module.filename 即完成更新,下次运行生效。
+function compareVersion(v1, v2) {
+  const a = String(v1).split("."), b = String(v2).split(".");
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const n1 = parseInt(a[i] || 0, 10), n2 = parseInt(b[i] || 0, 10);
+    if (n1 > n2) return 1;
+    if (n1 < n2) return -1;
+  }
+  return 0;
+}
+
+async function checkUpdate() {
+  if (!CONFIG.updateURL || config.runsInWidget) return;
   try {
-    return { ok: true, data: await req.loadJSON() };
+    const req = new Request(CONFIG.updateURL);
+    req.timeoutInterval = 10;
+    const code = await req.loadString();
+    const m = code.match(/@version\s+([\d.]+)/);
+    if (!m) return;
+    if (compareVersion(m[1], CONFIG.version) <= 0) {
+      console.log(`[xLyra] 已是最新 (${CONFIG.version})`);
+      return;
+    }
+    const a = new Alert();
+    a.title = "发现新版本";
+    a.message = `${CONFIG.version} → ${m[1]}\n更新会覆盖整个脚本(Keychain 凭证不受影响)。`;
+    a.addAction("更新");
+    a.addCancelAction("取消");
+    if ((await a.presentAlert()) !== 0) return;
+
+    let fm = FileManager.local();
+    if (fm.isFileStoredIniCloud(module.filename)) fm = FileManager.iCloud();
+    fm.writeString(module.filename, code);
+
+    const done = new Alert();
+    done.title = "更新完成";
+    done.message = "若脚本正在编辑页打开,请关闭后重新运行生效。";
+    done.addAction("好");
+    await done.presentAlert();
   } catch (e) {
-    return { ok: false, error: e.message };
+    console.warn(`[xLyra] 更新检查失败: ${e}`);
   }
 }
 
-async function fetchOverview() {
-  const r = await xlyraFetch("/api/v1/dashboard/overview");
-  return r.ok ? r.data : null;
-}
-async function fetchHealth() {
-  const r = await xlyraFetch("/api/v1/health/sites");
-  return r.ok ? r.data : null;
-}
-
-// ---------------- 解析 ----------------
-function parseOverview(raw) {
-  if (!raw) return null;
-  const kpis = raw.kpis || {};
-  const req = kpis.requests || {};
-  const cost = kpis.cost || {};
-  const rl = kpis.rate_limit || {};
-  return {
-    todayRequests: req.today ?? 0,
-    todayTokens: req.today_tokens ?? 0,
-    successRate: req.success_rate == null ? null : req.success_rate,
-    todayCost: cost.today ?? 0,
-    totalCost: cost.total ?? 0,
-    currency: cost.currency || "USD",
-    rpm: rl.rpm?.used ?? 0,
-    tpm: rl.tpm?.actual ?? 0,
-    attention: (raw.attention?.items || []).map(a => ({
-      id: a.id,
-      severity: a.severity || "info",
-      type: a.type,
-      modelKey: a.subject?.model_key || "-",
-      siteName: a.subject?.site_name || "-",
-      avgLatency: a.metrics?.avg_latency_ms ?? 0,
-      p95Latency: a.metrics?.p95_latency_ms ?? 0,
-      requestCount: a.metrics?.request_count ?? 0,
-    })),
-  };
+// ---------------- API ----------------
+async function xlyraFetch(path) {
+  const req = new Request(`${RUNTIME.baseURL}${path}`);
+  req.headers = { "X-Access-Token": RUNTIME.token, "Accept": "application/json" };
+  req.timeoutInterval = 12;
+  try {
+    const body = await req.loadJSON();
+    const status = req.response ? req.response.statusCode : 200;
+    if (status === 401 || status === 403) return { ok: false, error: "Admin Token 无效或权限不足" };
+    if (status < 200 || status >= 300) return { ok: false, error: `HTTP ${status}` };
+    return { ok: true, data: body };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
 }
 
-function parseHealth(raw) {
-  if (!raw || !Array.isArray(raw.items)) return [];
-  return raw.items
+// ---------------- 数据解析 ----------------
+function parseHealthSites(raw) {
+  return rows(raw)
     .map(it => {
-      const h = it.health || {};
-      const s = it.site || {};
+      const enabled = bool(it, "site.enabled") !== false;
+      const status = (str(it, "health.status") || "unknown").toLowerCase();
       return {
-        id: s.id || h.site_id,
-        name: s.name || "Unknown",
-        status: h.status || "unknown",
-        latency: Math.round(h.recent_avg_latency_ms ?? 0),
-        successRate: h.recent_success_rate ?? 1,
-        enabled: s.enabled !== false,
+        name: str(it, "site.name") || "站点",
+        enabled,
+        status,
+        ok: enabled && ["healthy", "up", "online"].includes(status),
+        latency: int(it, "health.recent_avg_latency_ms") ?? 0,
       };
     })
     .sort((a, b) => {
-      // 异常优先 → 高延迟靠后但在线优先
-      const sev = (st) => {
-        const k = (st || "").toLowerCase();
-        if (k === "down" || k === "offline" || k === "unhealthy") return 0;
-        if (k === "degraded") return 1;
-        if (k === "healthy") return 2;
-        return 3;
-      };
-      return sev(a.status) - sev(b.status) || a.latency - b.latency;
+      const sev = (x) => (!x.enabled ? 3 : !x.ok ? (x.status === "degraded" ? 1 : 0) : 2);
+      return sev(a) - sev(b) || a.latency - b.latency;
     });
 }
+function parseKeys(raw) {
+  const list = rows(raw).map(r => {
+    const status = (str(r, "status") || "active").toLowerCase();
+    const limit = num(r, "quota_limit");
+    const used = num(r, "quota_used") ?? 0;
+    return {
+      active: ["active", "enabled", "ok"].includes(status),
+      exhausted: limit !== null && used >= limit,
+    };
+  });
+  return {
+    total: list.length,
+    active: list.filter(x => x.active).length,
+    exhausted: list.filter(x => x.exhausted).length,
+  };
+}
+function resetTimeValue(obj, ...keys) {
+  for (const k of keys) {
+    const v = val(obj, k);
+    if (typeof v === "number") return new Date(v * 1000);
+    if (typeof v === "string" && v.trim()) {
+      const n = Number(v);
+      if (!Number.isNaN(n)) return new Date(n * 1000);
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+  }
+  return "--";
+}
+function parseOAuth(raw) {
+  return rows(raw).map(r => {
+    const status = (str(r, "status") || "connected").toLowerCase();
+    const limited = bool(r, "limit_reached", "quota.limit_reached", "meta.quota.limit_reached") === true;
+    const ok = ["connected", "active", "ok", "healthy", "available", "ready"].includes(status) && !limited;
+    const fiveRemain = percentValue(num(r, "five_hour_remaining_percent", "quota.five_hour.remaining_percent", "meta.quota.five_hour.remaining_percent"));
+    const weekRemain = percentValue(num(r, "weekly_remaining_percent", "quota.weekly.remaining_percent", "meta.quota.weekly.remaining_percent"));
+    return {
+      name: str(r, "email", "account.email", "site_name", "site.name", "account_id") || "OAuth",
+      plan: (str(r, "plan_type", "account.plan_type", "provider") || "OAUTH").toUpperCase(),
+      site: short(str(r, "site_name", "site.name", "provider") || "site", 16),
+      ok, limited,
+      fiveRemain,
+      weekRemain,
+      fiveReset: resetTimeValue(r, "five_hour_reset_at", "quota.five_hour.reset_at", "meta.quota.five_hour.reset_at"),
+      weekReset: resetTimeValue(r, "weekly_reset_at", "quota.weekly.reset_at", "meta.quota.weekly.reset_at"),
+      priority: num(r, "priority", "routing_priority", "site.routing_priority") ?? 0,
+    };
+  }).sort((a, b) => b.priority - a.priority || (a.ok === b.ok ? 0 : a.ok ? -1 : 1));
+}
+function healthLevel({ sitesTotal, sitesHealthy, oauthTotal, oauthHealthy, keysExhausted, successRate, cooldowns }) {
+  if (sitesTotal === 0 || sitesHealthy === 0 || successRate < 0.8) return "critical";
+  if (sitesHealthy < sitesTotal || oauthHealthy < oauthTotal || keysExhausted > 0 || cooldowns > 0 || successRate < 0.95) return "warning";
+  return "healthy";
+}
+const healthColor = (h) => (h === "healthy" ? C.green : h === "warning" ? C.yellow : C.red);
+const healthBg = (h) => (h === "healthy" ? C.greenBg : h === "warning" ? C.yellowBg : C.redBg);
+const healthLabel = (h) => (h === "healthy" ? "正常" : h === "warning" ? "注意" : "故障");
+const quotaColor = (n) => (n == null ? C.dim : n < 30 ? C.red : n < 60 ? C.yellow : C.green);
 
-function computeAvgLatency(health) {
-  const valid = health.filter(s => s.latency > 0);
-  if (!valid.length) return 0;
-  return Math.round(valid.reduce((a, s) => a + s.latency, 0) / valid.length);
+async function fetchAdmin() {
+  const [usage, epaper, health, keys, oauth, cooldowns] = await Promise.all([
+    xlyraFetch("/api/v1/dashboard/usage"),
+    xlyraFetch("/api/v1/dashboard/epaper-summary"),
+    xlyraFetch("/api/v1/health/sites"),
+    xlyraFetch("/api/v1/api-keys"),
+    xlyraFetch("/api/v1/oauth/connections"),
+    xlyraFetch("/api/v1/dashboard/cooldowns"),
+  ]);
+  if (!usage.ok && !epaper.ok && !health.ok) return { error: usage.error || epaper.error || health.error };
+
+  const kpis = val(usage.ok ? usage.data : {}, "kpis") || {};
+  const ep = epaper.ok ? (val(epaper.data, "data") || epaper.data) : {};
+  const epKpis = val(ep, "kpis") || {};
+
+  const sites = parseHealthSites(health.ok ? health.data : null);
+  const keyStats = parseKeys(keys.ok ? keys.data : null);
+  const oauthRows = parseOAuth(oauth.ok ? oauth.data : null);
+  const cooldownCount = rows(cooldowns.ok ? cooldowns.data : null).length;
+
+  const todayRequests = int(kpis, "requests.today") ?? int(epKpis, "today_requests") ?? 0;
+  const todayTokens = int(kpis, "requests.today_tokens") ?? int(epKpis, "today_tokens") ?? 0;
+  const todayCost = num(kpis, "cost.today") ?? num(epKpis, "today_cost") ?? 0;
+  const totalCost = num(kpis, "cost.total") ?? num(epKpis, "total_cost") ?? 0;
+  const totalTokens = int(kpis, "requests.total_tokens") ?? int(epKpis, "total_tokens") ?? 0;
+  const successRate = num(kpis, "requests.success_rate") ?? 1;
+  const rpm = int(kpis, "rate_limit.rpm.used") ?? int(epKpis, "rpm_used") ?? 0;
+
+  const topRaw = val(ep, "model_top3_today") || [];
+  const topModels = (Array.isArray(topRaw) ? topRaw : []).map(t => ({
+    name: str(t, "model_key", "model", "name") || "-",
+    cost: num(t, "cost") ?? 0,
+  })).slice(0, 3);
+
+  const sitesHealthy = sites.filter(x => x.ok).length;
+  const oauthHealthy = oauthRows.filter(x => x.ok).length;
+  const hl = healthLevel({
+    sitesTotal: sites.length,
+    sitesHealthy,
+    oauthTotal: oauthRows.length,
+    oauthHealthy,
+    keysExhausted: keyStats.exhausted,
+    successRate,
+    cooldowns: cooldownCount,
+  });
+
+  return {
+    checkedAt: new Date(),
+    health: hl,
+    today: { requests: todayRequests, tokens: todayTokens, cost: todayCost, successRate, failed: Math.round(todayRequests * (1 - successRate)) },
+    totals: { cost: totalCost, tokens: totalTokens },
+    rpm,
+    sites, sitesTotal: sites.length, sitesHealthy,
+    keys: keyStats,
+    oauthRows, oauthTotal: oauthRows.length, oauthHealthy,
+    cooldowns: cooldownCount,
+    topModels,
+  };
 }
 
-// ---------------- 颜色映射 ----------------
-function statusColor(status) {
-  const s = (status || "").toLowerCase();
-  if (s === "healthy" || s === "up" || s === "online") return C.online;
-  if (s === "degraded" || s === "warning") return C.warning;
-  if (s === "down" || s === "offline" || s === "error" || s === "unhealthy") return C.offline;
-  return C.unknown;
+// ==========================================
+// UI 零件
+// ==========================================
+function base() {
+  const w = new ListWidget();
+  const g = new LinearGradient();
+  g.colors = [C.bgTop, C.bg];
+  g.locations = [0, 1];
+  w.backgroundGradient = g;
+  return w;
 }
-function statusText(status) {
-  const s = (status || "").toLowerCase();
-  if (s === "healthy") return "正常";
-  if (s === "degraded") return "降级";
-  if (s === "down" || s === "unhealthy") return "离线";
-  return "未知";
+function txt(parent, s, size, weight, color) {
+  const t = parent.addText(String(s));
+  t.font = weight === "bold" ? Font.boldSystemFont(size) : weight === "semibold" ? Font.semiboldSystemFont(size) : Font.systemFont(size);
+  t.textColor = color;
+  t.lineLimit = 1;
+  t.minimumScaleFactor = 0.7;
+  return t;
 }
-function severityColor(sev) {
-  const s = (sev || "").toLowerCase();
-  if (s === "critical" || s === "error") return C.offline;
-  if (s === "warning") return C.warning;
-  return C.accent;
+function dot(parent, color, size = 6, gap = 5) {
+  const s = parent.addStack();
+  s.size = new Size(size, size);
+  s.backgroundColor = color;
+  s.cornerRadius = size / 2;
+  parent.addSpacer(gap);
 }
-function latencyColor(ms) {
-  if (ms <= 0) return C.muted;
-  if (ms < 500) return C.online;
-  if (ms < 1500) return C.warning;
-  return C.offline;
+function statusPill(parent, label, h, width = 52) {
+  const p = parent.addStack();
+  p.centerAlignContent();
+  p.size = new Size(width, 20);
+  p.backgroundColor = healthBg(h);
+  p.cornerRadius = 10;
+  p.borderColor = healthColor(h);
+  p.borderWidth = 1;
+  p.addSpacer();
+  dot(p, healthColor(h), 5, 3);
+  txt(p, label, 10, "bold", healthColor(h));
+  p.addSpacer();
 }
-function rateColor(pct) {
-  if (pct >= 99) return C.online;
-  if (pct >= 90) return C.warning;
-  return C.offline;
+function progressBar(parent, percent, width, height = 6) {
+  const n = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  const track = parent.addStack();
+  track.layoutHorizontally();
+  track.backgroundColor = C.track;
+  track.cornerRadius = height / 2;
+  track.size = new Size(width, height);
+  const fill = track.addStack();
+  fill.backgroundColor = quotaColor(percent);
+  fill.cornerRadius = height / 2;
+  fill.size = new Size(Math.max(4, Math.round(width * (n / 100))), height);
+  track.addSpacer();
+}
+function segmentedBar(parent, percent, width) {
+  const remain = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  const count = 7;
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  row.size = new Size(width, 6);
+  const segW = Math.floor((width - (count - 1) * 2) / count);
+  for (let i = 0; i < count; i++) {
+    const segStart = i * (100 / count);
+    const fillRatio = Math.max(0, Math.min(1, (remain - segStart) / (100 / count)));
+    const s = row.addStack();
+    s.layoutHorizontally();
+    s.size = new Size(segW, 6);
+    s.cornerRadius = 3;
+    s.backgroundColor = C.track;
+    if (fillRatio >= 0.999) {
+      s.backgroundColor = quotaColor(percent);
+    } else if (fillRatio > 0) {
+      const fill = s.addStack();
+      fill.backgroundColor = quotaColor(percent);
+      fill.cornerRadius = 3;
+      fill.size = new Size(Math.max(2, Math.round(segW * fillRatio)), 6);
+      s.addSpacer();
+    }
+    if (i !== count - 1) row.addSpacer(2);
+  }
+}
+// 配额面板:标题 + 百分比 + 进度条(5h 连续条 / 7d 分段条) + 底部重置信息
+function quotaPanel(parent, title, remainPct, reset, width, segmented) {
+  const box = parent.addStack();
+  box.layoutVertically();
+  box.size = new Size(width, 60);
+  box.backgroundColor = C.panel;
+  box.cornerRadius = 10;
+  box.borderColor = C.stroke;
+  box.borderWidth = 0.5;
+  box.setPadding(8, 11, 7, 11);
+
+  const head = box.addStack();
+  head.layoutHorizontally();
+  txt(head, title, 14, "bold", C.text);
+  head.addSpacer();
+  txt(head, remainPct == null ? "--%" : `${remainPct}%`, 12, "regular", quotaColor(remainPct));
+
+  box.addSpacer(7);
+  if (segmented) segmentedBar(box, remainPct, width - 22);
+  else progressBar(box, remainPct, width - 22, 6);
+
+  box.addSpacer(5);
+  const foot = box.addStack();
+  foot.layoutHorizontally();
+  txt(foot, resetDateLabel(reset), 8, "regular", C.sub);
+  foot.addSpacer();
+  txt(foot, resetLabel(reset), 8, "regular", C.sub);
+}
+function miniMetric(parent, value, label, color, width) {
+  const box = parent.addStack();
+  box.layoutVertically();
+  box.size = new Size(width, 36);
+  box.backgroundColor = C.panel3;
+  box.cornerRadius = 10;
+  box.borderColor = C.stroke;
+  box.borderWidth = 0.5;
+  box.setPadding(7, 10, 6, 10);
+  txt(box, value, 12, "bold", color);
+  box.addSpacer(2);
+  txt(box, label, 8, "regular", C.sub);
+}
+function summaryCell(parent, value, label, color, width) {
+  const box = parent.addStack();
+  box.layoutVertically();
+  box.size = new Size(width, 52);
+  box.backgroundColor = C.panel;
+  box.cornerRadius = 10;
+  box.borderColor = C.stroke;
+  box.borderWidth = 0.5;
+  box.setPadding(8, 6, 7, 6);
+  box.centerAlignContent();
+  const v = txt(box, value, 13, "bold", color);
+  v.centerAlignText();
+  box.addSpacer(3);
+  const l = txt(box, label, 9, "regular", C.sub);
+  l.centerAlignText();
+}
+function badge(parent, label) {
+  const v = String(label || "").toUpperCase();
+  const fg = v === "FREE" ? C.blue : v === "PRO" ? C.pink : C.green;
+  const bg = v === "FREE" ? C.blueBg : v === "PRO" ? C.pinkBg : C.greenBg;
+  const b = parent.addStack();
+  b.backgroundColor = bg;
+  b.cornerRadius = 7;
+  b.setPadding(1, 4, 1, 4);
+  txt(b, label, 8, "bold", fg);
+}
+function sectionTitle(parent, title, right) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  txt(row, title, 11, "bold", C.text);
+  row.addSpacer();
+  txt(row, right, 10, "bold", C.sub);
+}
+function siteRowUI(parent, s, fontSize = 10) {
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
+  dot(row, !s.enabled ? C.dim : s.ok ? C.green : s.status === "degraded" ? C.yellow : C.red, 6, 6);
+  txt(row, short(s.name, 12), fontSize, "regular", C.text);
+  row.addSpacer();
+  txt(row, !s.enabled ? "停用" : `${s.latency}ms`, fontSize - 1, "regular",
+    !s.enabled ? C.dim : s.latency <= 0 ? C.dim : s.latency < 500 ? C.green : s.latency < 1500 ? C.yellow : C.red);
+}
+function oauthCard(parent, x, width) {
+  const card = parent.addStack();
+  card.layoutVertically();
+  card.size = new Size(width, 60);
+  card.backgroundColor = C.panel;
+  card.cornerRadius = 10;
+  card.borderColor = C.stroke;
+  card.borderWidth = 0.5;
+  card.setPadding(7, 12, 9, 12);
+
+  const cw = width - 24;
+  const top = card.addStack();
+  top.layoutHorizontally();
+  top.centerAlignContent();
+  const email = txt(top, short(x.name, 24), 11, "bold", C.text);
+  email.minimumScaleFactor = 0.65;
+  top.addSpacer(5);
+  badge(top, x.plan);
+  top.addSpacer();
+  txt(top, x.ok ? "可用" : x.limited ? "触顶" : "异常", 9, "bold", x.ok ? C.green : C.yellow);
+
+  card.addSpacer(4);
+  const meta = card.addStack();
+  meta.layoutHorizontally();
+  txt(meta, `${x.site} · 5h ${x.fiveRemain ?? "--"}%`, 9, "regular", C.sub);
+  meta.addSpacer();
+  txt(meta, `7d ${x.weekRemain ?? "--"}%`, 9, "regular", C.sub);
+
+  card.addSpacer(7);
+  progressBar(card, Math.min(x.fiveRemain ?? 0, x.weekRemain ?? 0), cw, 5);
 }
 
-// ---------------- 绘制 ----------------
-function drawDot(color, size = 8) {
-  const ctx = new DrawContext();
-  ctx.size = new Size(size, size);
-  ctx.opaque = false;
-  ctx.respectScreenScale = true;
-  ctx.setFillColor(color);
-  ctx.fillEllipse(new Rect(0, 0, size, size));
-  return ctx.getImage();
+// 布局尺寸(按机型估算)
+function logicalWidth() {
+  try {
+    const s = Device.screenSize();
+    const raw = Math.min(s.width, s.height);
+    const scale = typeof Device.screenScale === "function" ? Device.screenScale() : 1;
+    return raw > 500 && scale > 1 ? raw / scale : raw;
+  } catch (_) { return 390; }
 }
+function widgetWidth(family) {
+  const big = logicalWidth() >= 414;
+  if (family === "small") return big ? 169 : 155;
+  return big ? 348 : 329;
+}
+function columns(totalWidth, count, gap) {
+  const available = totalWidth - gap * (count - 1);
+  const baseW = Math.floor(available / count);
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(i === count - 1 ? available - baseW * (count - 1) : baseW);
+  return out;
+}
+// 各尺寸边距
+const PAD = { small: 15, medium: 13, large: 15 };
 
-// ---------------- 入口 ----------------
-const widget = new ListWidget();
-const grad = new LinearGradient();
-grad.colors = [C.bgStart, C.bgEnd];
-grad.locations = [0, 1];
-widget.backgroundGradient = grad;
-
+// ==========================================
+// 入口
+// ==========================================
 const cfg = await loadConfig();
 const notConfigured = !cfg;
 if (cfg) RUNTIME = cfg;
 
-const overview = notConfigured ? null : parseOverview(await fetchOverview());
-const health = notConfigured ? [] : parseHealth(await fetchHealth());
-const avgLatency = computeAvgLatency(health);
-const onlineCount = health.filter(s =>
-  ["healthy", "up", "online"].includes((s.status || "").toLowerCase())
-).length;
-const hasError = notConfigured || (!overview && health.length === 0);
-const allOnline = health.length > 0 && onlineCount === health.length;
-
-// 在 App 模式下显示已配置的 baseURL（脱敏 token），便于检查
-if (!config.runsInWidget && cfg) {
-  console.log(`[xLyra] baseURL = ${cfg.baseURL}`);
-  console.log(`[xLyra] token = ${cfg.token.slice(0, 12)}...${cfg.token.slice(-4)}`);
+let d = null;
+let fetchError = null;
+if (!notConfigured) {
+  const r = await fetchAdmin();
+  if (r && r.error) fetchError = r.error;
+  else d = r;
 }
 
-if (WIDGET_SIZE === "small") {
-  widget.setPadding(12, 12, 12, 12);
-  renderSmall(widget, { overview, health, onlineCount, allOnline, hasError });
+if (!config.runsInWidget) {
+  console.log(`[xLyra] baseURL = ${RUNTIME.baseURL || "(未配置)"}`);
+  if (RUNTIME.token) console.log(`[xLyra] token = ${RUNTIME.token.slice(0, 12)}…${RUNTIME.token.slice(-4)}`);
+  if (d) console.log(`[xLyra] health = ${d.health} | sites ${d.sitesHealthy}/${d.sitesTotal} | keys ${d.keys.active}/${d.keys.total} | oauth ${d.oauthHealthy}/${d.oauthTotal} | today ${d.today.requests}req $${money(d.today.cost)}`);
+  if (fetchError) console.log(`[xLyra] fetch error = ${fetchError}`);
+}
+
+const w = base();
+w.url = "scriptable:///run/" + encodeURIComponent(Script.name());
+
+if (notConfigured) {
+  renderMessage(w, "xLyra", "未配置:长按 Widget → Edit → Parameter 填  https://host@xlyra-admin-xxxx", C.yellow);
+} else if (fetchError) {
+  renderMessage(w, "xLyra 刷新失败", fetchError, C.red);
+} else if (WIDGET_SIZE === "small") {
+  renderSmall(w, d);
 } else if (WIDGET_SIZE === "large") {
-  widget.setPadding(14, 14, 14, 14);
-  renderLarge(widget, { overview, health, onlineCount, avgLatency, allOnline, hasError });
+  renderLarge(w, d);
 } else {
-  widget.setPadding(12, 12, 12, 12);
-  renderMedium(widget, { overview, health, onlineCount, avgLatency, allOnline, hasError });
+  renderMedium(w, d);
 }
 
-widget.refreshAfterDate = new Date(Date.now() + 1000 * 60 * CONFIG.refreshMinutes);
-Script.setWidget(widget);
+w.refreshAfterDate = new Date(Date.now() + 1000 * 60 * CONFIG.refreshMinutes);
+Script.setWidget(w);
+
+if (!config.runsInWidget) {
+  if (WIDGET_SIZE === "small") await w.presentSmall();
+  else if (WIDGET_SIZE === "large") await w.presentLarge();
+  else await w.presentMedium();
+  await checkUpdate();
+}
 Script.complete();
 
+// ---------------- 错误 / 未配置 ----------------
+function renderMessage(w, title, msg, color) {
+  w.setPadding(16, 16, 16, 16);
+  w.addSpacer();
+  const t = txt(w, title, 15, "bold", C.text);
+  t.centerAlignText();
+  w.addSpacer(6);
+  const m = w.addText(msg);
+  m.font = Font.systemFont(10);
+  m.textColor = color;
+  m.centerAlignText();
+  w.addSpacer();
+}
+
+// ---------------- 有 OAuth 时的配额双面板 ----------------
+function addQuotaPanels(w, d, cw, gap = 10) {
+  const q = d.oauthRows[0];
+  if (!q) return;
+  const cols2 = columns(cw, 2, gap);
+  const quota = w.addStack();
+  quota.layoutHorizontally();
+  quotaPanel(quota, "5h", q.fiveRemain, q.fiveReset, cols2[0], false);
+  quota.addSpacer(gap);
+  quotaPanel(quota, "7d", q.weekRemain, q.weekReset, cols2[1], true);
+}
+
 // ==========================================
-// Small (155x155)
+// Small
 // ==========================================
-function renderSmall(w, { overview, health, onlineCount, allOnline, hasError }) {
-  // 顶部：xLyra + 在线
+function renderSmall(w, d) {
+  const pad = PAD.small;
+  const cw = widgetWidth("small") - pad * 2;
+  w.setPadding(pad, pad, pad, pad);
+
   const head = w.addStack();
   head.layoutHorizontally();
   head.centerAlignContent();
-
-  const dot = head.addImage(drawDot(hasError ? C.offline : allOnline ? C.online : C.warning, 8));
-  dot.imageSize = new Size(8, 8);
-  head.addSpacer(5);
-  const brand = head.addText("xLyra");
-  brand.font = Font.semiboldSystemFont(12);
-  brand.textColor = C.accent;
+  dot(head, healthColor(d.health), 8, 6);
+  txt(head, "xLyra", 13, "bold", C.text);
   head.addSpacer();
-  const online = head.addText(`${onlineCount}/${health.length}`);
-  online.font = Font.mediumSystemFont(11);
-  online.textColor = C.secondary;
+  statusPill(head, healthLabel(d.health), d.health, 46);
 
-  if (hasError) {
-    w.addSpacer();
-    const err = w.addText(notConfigured ? "未配置" : "连接失败");
-    err.font = Font.mediumSystemFont(15);
-    err.textColor = C.offline;
-    err.centerAlignText();
-    w.addSpacer(2);
-    const hint = w.addText(notConfigured ? "长按编辑 Parameter" : "检查 Token / 网络");
-    hint.font = Font.systemFont(10);
-    hint.textColor = C.secondary;
-    hint.centerAlignText();
-    w.addSpacer();
-    return;
-  }
-
-  w.addSpacer(6);
-
-  // 主指标：今日请求
-  const big = w.addText(k(overview?.todayRequests ?? 0));
-  big.font = Font.lightSystemFont(34);
-  big.textColor = C.primary;
+  w.addSpacer(10);
+  const big = txt(w, `$${money(d.today.cost)}`, 28, "semibold", C.text);
   big.centerAlignText();
-  big.minimumScaleFactor = 0.7;
-  big.lineLimit = 1;
-
-  const lbl = w.addText("今日请求");
-  lbl.font = Font.systemFont(10);
-  lbl.textColor = C.secondary;
-  lbl.centerAlignText();
+  w.addSpacer(2);
+  txt(w, `今日费用 · ${d.today.requests} 请求`, 9, "regular", C.sub).centerAlignText();
 
   w.addSpacer();
-
-  // 副指标：成本 / 成功率
-  const sub = w.addStack();
-  sub.layoutHorizontally();
-  sub.centerAlignContent();
-
-  const cost = sub.addText(money(overview?.todayCost ?? 0, overview?.currency));
-  cost.font = Font.mediumSystemFont(11);
-  cost.textColor = C.primary;
-
-  sub.addSpacer();
-
-  const rate = overview?.successRate;
-  const rateStr = rate == null ? "—" : `${Math.round(rate * 100)}%`;
-  const rateText = sub.addText(rateStr);
-  rateText.font = Font.mediumSystemFont(11);
-  rateText.textColor = rate == null ? C.muted : rateColor(rate * 100);
+  const ratePct = Math.round(d.today.successRate * 100);
+  progressBar(w, ratePct, cw, 5);
+  w.addSpacer(5);
+  const foot = w.addStack();
+  foot.layoutHorizontally();
+  txt(foot, `成功率 ${ratePct}%`, 9, "regular", quotaColor(ratePct));
+  foot.addSpacer();
+  txt(foot, `站点 ${d.sitesHealthy}/${d.sitesTotal}`, 9, "regular", C.sub);
 }
 
 // ==========================================
-// Medium (329x155)
+// Medium(自适应:无 OAuth → 站点健康列表)
 // ==========================================
-function renderMedium(w, { overview, health, onlineCount, avgLatency, allOnline, hasError }) {
-  // 顶部标题栏
+function renderMedium(w, d) {
+  const pad = PAD.medium;
+  const cw = widgetWidth("medium") - pad * 2;
+  const hasOAuth = d.oauthRows.length > 0;
+  w.setPadding(pad, pad, pad, pad);
+
+  // hero 头
   const head = w.addStack();
   head.layoutHorizontally();
   head.centerAlignContent();
-
-  const dot = head.addImage(drawDot(hasError ? C.offline : allOnline ? C.online : C.warning, 8));
-  dot.imageSize = new Size(8, 8);
-  head.addSpacer(5);
-  const brand = head.addText("xLyra");
-  brand.font = Font.semiboldSystemFont(12);
-  brand.textColor = C.accent;
-  head.addSpacer();
-  const t = head.addText(`${pad2(now.getHours())}:${pad2(now.getMinutes())}`);
-  t.font = Font.systemFont(10);
-  t.textColor = C.secondary;
-
-  if (hasError) {
-    w.addSpacer();
-    const err = w.addText(notConfigured ? "未配置 xLyra" : "数据获取失败");
-    err.font = Font.mediumSystemFont(14);
-    err.textColor = C.offline;
-    err.centerAlignText();
-    w.addSpacer(2);
-    const hint = w.addText(notConfigured
-      ? "长按 Widget → Edit → Parameter 填  http://host:port@token"
-      : "检查 baseURL 和 X-Access-Token");
-    hint.font = Font.systemFont(10);
-    hint.textColor = C.secondary;
-    hint.centerAlignText();
-    w.addSpacer();
-    return;
-  }
-
-  w.addSpacer(8);
-
-  // 主体：左 KPI · 右 站点
-  const body = w.addStack();
-  body.layoutHorizontally();
-  body.spacing = 10;
-
-  // 左：4 KPI 紧凑
-  const left = body.addStack();
+  const left = head.addStack();
   left.layoutVertically();
-  left.spacing = 4;
-
-  addKpiRow(left, k(overview?.todayRequests ?? 0), "请求", C.primary);
-  const rate = overview?.successRate;
-  addKpiRow(left,
-    rate == null ? "—" : `${Math.round(rate * 100)}%`,
-    "成功",
-    rate == null ? C.muted : rateColor(rate * 100));
-  addKpiRow(left, money(overview?.todayCost ?? 0, overview?.currency), "成本", C.primary);
-  addKpiRow(left, `${avgLatency}ms`, "延迟", latencyColor(avgLatency));
-
-  body.addSpacer(8);
-
-  // 右：站点列表
-  const right = body.addStack();
-  right.layoutVertically();
-  right.spacing = 5;
-
-  const rh = right.addStack();
-  rh.layoutHorizontally();
-  rh.centerAlignContent();
-  const rht = rh.addText("站点");
-  rht.font = Font.semiboldSystemFont(10);
-  rht.textColor = C.secondary;
-  rh.addSpacer();
-  const cnt = rh.addText(`${onlineCount}/${health.length} 在线`);
-  cnt.font = Font.systemFont(9);
-  cnt.textColor = C.muted;
-
-  if (!health.length) {
-    const empty = right.addText("暂无站点");
-    empty.font = Font.italicSystemFont(10);
-    empty.textColor = C.muted;
-  } else {
-    const limit = Math.min(health.length, CONFIG.mediumSiteLimit);
-    for (let i = 0; i < limit; i++) {
-      addSiteRow(right, health[i], 10);
-    }
-  }
-}
-
-function addKpiRow(parent, value, label, color) {
-  const row = parent.addStack();
-  row.layoutHorizontally();
-  row.bottomAlignContent();
-  const v = row.addText(value);
-  v.font = Font.semiboldSystemFont(15);
-  v.textColor = color;
-  v.lineLimit = 1;
-  v.minimumScaleFactor = 0.7;
-  row.addSpacer(4);
-  const l = row.addText(label);
-  l.font = Font.systemFont(10);
-  l.textColor = C.secondary;
-}
-
-function addSiteRow(parent, s, fontSize = 10) {
-  const row = parent.addStack();
-  row.layoutHorizontally();
-  row.centerAlignContent();
-  const d = row.addImage(drawDot(statusColor(s.status), 6));
-  d.imageSize = new Size(6, 6);
-  row.addSpacer(5);
-  const n = row.addText(shortName(s.name, 8));
-  n.font = Font.systemFont(fontSize);
-  n.textColor = C.primary;
-  n.lineLimit = 1;
-  row.addSpacer();
-  const l = row.addText(`${s.latency}ms`);
-  l.font = Font.systemFont(fontSize - 1);
-  l.textColor = latencyColor(s.latency);
-  l.lineLimit = 1;
-}
-
-// ==========================================
-// Large (329x345)
-// ==========================================
-function renderLarge(w, { overview, health, onlineCount, avgLatency, allOnline, hasError }) {
-  // 顶部
-  const head = w.addStack();
-  head.layoutHorizontally();
-  head.centerAlignContent();
-
-  const dot = head.addImage(drawDot(hasError ? C.offline : allOnline ? C.online : C.warning, 10));
-  dot.imageSize = new Size(10, 10);
-  head.addSpacer(6);
-  const brand = head.addText("xLyra 监控");
-  brand.font = Font.semiboldSystemFont(14);
-  brand.textColor = C.accent;
-  head.addSpacer();
-  const t = head.addText(`${pad2(now.getHours())}:${pad2(now.getMinutes())}`);
-  t.font = Font.systemFont(11);
-  t.textColor = C.secondary;
-
-  if (hasError) {
-    w.addSpacer();
-    const err = w.addText(notConfigured ? "未配置 xLyra" : "数据获取失败");
-    err.font = Font.mediumSystemFont(16);
-    err.textColor = C.offline;
-    err.centerAlignText();
-    w.addSpacer(4);
-    const hint = w.addText(notConfigured
-      ? "长按 Widget → Edit Widget\nParameter 填  http://host:port@token"
-      : "检查 baseURL / X-Access-Token / 网络");
-    hint.font = Font.systemFont(11);
-    hint.textColor = C.secondary;
-    hint.centerAlignText();
-    w.addSpacer();
-    return;
-  }
-
-  w.addSpacer(10);
-
-  // 4 KPI 卡片
-  const cards = w.addStack();
-  cards.layoutHorizontally();
-  cards.spacing = 6;
-
-  addKpiCard(cards, k(overview?.todayRequests ?? 0), "今日请求", C.accent);
-
-  const rate = overview?.successRate;
-  addKpiCard(cards,
-    rate == null ? "—" : `${Math.round(rate * 100)}%`,
-    "成功率",
-    rate == null ? C.muted : rateColor(rate * 100));
-
-  addKpiCard(cards, money(overview?.todayCost ?? 0, overview?.currency), "今日成本", C.primary);
-
-  addKpiCard(cards,
-    `${onlineCount}/${health.length}`,
-    "在线",
-    allOnline ? C.online : C.warning);
-
-  w.addSpacer(10);
-
-  // 双栏：站点健康 / 关注事项
-  const body = w.addStack();
-  body.layoutHorizontally();
-  body.spacing = 10;
-
-  // 左：站点健康
-  const left = body.addStack();
-  left.layoutVertically();
-  left.spacing = 4;
-
-  const lh = left.addText("站点健康");
-  lh.font = Font.semiboldSystemFont(11);
-  lh.textColor = C.secondary;
+  txt(left, `更新于 ${monthDayTime(d.checkedAt)}`, 12, "bold", C.text);
   left.addSpacer(2);
+  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed}`, 9, "regular", C.sub);
+  head.addSpacer();
+  statusPill(head, healthLabel(d.health), d.health, 52);
 
-  if (!health.length) {
-    const e = left.addText("暂无站点");
-    e.font = Font.italicSystemFont(10);
-    e.textColor = C.muted;
+  w.addSpacer(10);
+
+  if (hasOAuth) {
+    addQuotaPanels(w, d, cw);
+    w.addSpacer(10);
+    const cols3 = columns(cw, 3, 10);
+    const bottom = w.addStack();
+    bottom.layoutHorizontally();
+    miniMetric(bottom, compact(d.today.tokens), "今日 Token", C.text, cols3[0]);
+    bottom.addSpacer(10);
+    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.text, cols3[1]);
+    bottom.addSpacer(10);
+    miniMetric(bottom, `${d.rpm}`, "RPM", d.rpm > 0 ? C.cyan : C.sub, cols3[2]);
   } else {
-    const limit = Math.min(health.length, CONFIG.largeSiteLimit);
-    for (let i = 0; i < limit; i++) {
-      const s = health[i];
-      const row = left.addStack();
+    // 无 OAuth:站点健康 + 底部指标
+    sectionTitle(w, "站点健康", `${d.sitesHealthy}/${d.sitesTotal} 在线`);
+    w.addSpacer(6);
+    if (!d.sites.length) txt(w, "暂无站点", 10, "regular", C.dim);
+    d.sites.slice(0, CONFIG.mediumSiteLimit).forEach((s, i) => {
+      siteRowUI(w, s, 10);
+      if (i < Math.min(d.sites.length, CONFIG.mediumSiteLimit) - 1) w.addSpacer(5);
+    });
+
+    w.addSpacer();
+    w.addSpacer(8);
+
+    const cols3 = columns(cw, 3, 10);
+    const bottom = w.addStack();
+    bottom.layoutHorizontally();
+    miniMetric(bottom, compact(d.today.tokens), "今日 Token", C.text, cols3[0]);
+    bottom.addSpacer(10);
+    miniMetric(bottom, `$${money(d.today.cost)}`, "今日费用", C.text, cols3[1]);
+    bottom.addSpacer(10);
+    miniMetric(bottom, `${d.rpm}`, "RPM", d.rpm > 0 ? C.cyan : C.sub, cols3[2]);
+  }
+}
+
+// ==========================================
+// Large(自适应:OAuth 卡片 / 站点列表 / TOP3 模型)
+// ==========================================
+function renderLarge(w, d) {
+  const pad = PAD.large;
+  const cw = widgetWidth("large") - pad * 2;
+  const hasOAuth = d.oauthRows.length > 0;
+  const hasTop = d.topModels.length > 0;
+  w.setPadding(pad, pad, pad, pad);
+
+  // hero 头
+  const head = w.addStack();
+  head.layoutHorizontally();
+  head.centerAlignContent();
+  const left = head.addStack();
+  left.layoutVertically();
+  txt(left, `更新于 ${monthDayTime(d.checkedAt)}`, 13, "bold", C.text);
+  left.addSpacer(2);
+  txt(left, `请求 ${d.today.requests} · 成功率 ${pct(d.today.successRate)} · 失败 ${d.today.failed} · 冷却 ${d.cooldowns}`, 9, "regular", C.sub);
+  head.addSpacer();
+  statusPill(head, healthLabel(d.health), d.health, 52);
+
+  // 4 摘要格(不显示 OAuth 格如果没有账号)
+  w.addSpacer(12);
+  const cells = [
+    [`${d.sitesHealthy}/${d.sitesTotal}`, "站点", d.sitesHealthy === d.sitesTotal ? C.green : C.yellow],
+    [`$${money(d.today.cost)}`, "今日费用", C.text],
+    [pct(d.today.successRate), "成功率", d.today.successRate >= 0.95 ? C.green : C.yellow],
+  ];
+  if (hasOAuth) cells.unshift([`${d.oauthHealthy}/${d.oauthTotal}`, "OAuth", d.oauthHealthy === d.oauthTotal ? C.green : C.yellow]);
+  else cells.push([`${d.keys.active}/${d.keys.total}`, "API Key", d.keys.exhausted ? C.yellow : C.green]);
+
+  const cols4 = columns(cw, cells.length, 10);
+  const sum = w.addStack();
+  sum.layoutHorizontally();
+  cells.forEach((c, i) => {
+    summaryCell(sum, c[0], c[1], c[2], cols4[i]);
+    if (i < cells.length - 1) sum.addSpacer(10);
+  });
+
+  // 配额面板(仅有 OAuth)
+  if (hasOAuth) {
+    w.addSpacer(12);
+    addQuotaPanels(w, d, cw);
+  }
+
+  // OAuth 账号卡片 / 站点健康
+  if (hasOAuth) {
+    w.addSpacer(12);
+    sectionTitle(w, "OAuth 账户", `${d.oauthHealthy}/${d.oauthTotal} 可用`);
+    w.addSpacer(7);
+    d.oauthRows.slice(0, CONFIG.largeOAuthLimit).forEach((x, i) => {
+      oauthCard(w, x, cw);
+      if (i < Math.min(d.oauthRows.length, CONFIG.largeOAuthLimit) - 1) w.addSpacer(8);
+    });
+  } else if (d.sites.length) {
+    w.addSpacer(12);
+    sectionTitle(w, "站点健康", `${d.sitesHealthy}/${d.sitesTotal} 在线`);
+    w.addSpacer(7);
+    d.sites.slice(0, CONFIG.largeSiteLimit).forEach((s, i) => {
+      siteRowUI(w, s, 10);
+      if (i < Math.min(d.sites.length, CONFIG.largeSiteLimit) - 1) w.addSpacer(5);
+    });
+  }
+
+  // TOP3 模型成本(无 OAuth 且有数据时展示)
+  if (!hasOAuth && hasTop) {
+    w.addSpacer(12);
+    sectionTitle(w, "今日模型成本 TOP3", `$${money(d.today.cost)}`);
+    w.addSpacer(7);
+    const medal = [C.yellow, C.sub, C.dim];
+    d.topModels.forEach((t, i) => {
+      const row = w.addStack();
       row.layoutHorizontally();
       row.centerAlignContent();
-      const d = row.addImage(drawDot(statusColor(s.status), 7));
-      d.imageSize = new Size(7, 7);
-      row.addSpacer(5);
-      const n = row.addText(shortName(s.name, 7));
-      n.font = Font.systemFont(11);
-      n.textColor = C.primary;
-      n.lineLimit = 1;
+      dot(row, medal[i] || C.dim, 6, 6);
+      txt(row, short(t.name, 18), 10, "regular", C.text);
       row.addSpacer();
-      const l = row.addText(`${s.latency}ms`);
-      l.font = Font.systemFont(10);
-      l.textColor = latencyColor(s.latency);
-    }
-  }
-
-  // 右：关注事项
-  const right = body.addStack();
-  right.layoutVertically();
-  right.spacing = 4;
-
-  const rh = right.addText("关注事项");
-  rh.font = Font.semiboldSystemFont(11);
-  rh.textColor = C.secondary;
-  right.addSpacer(2);
-
-  const items = overview?.attention || [];
-  if (!items.length) {
-    const ok = right.addStack();
-    ok.layoutHorizontally();
-    ok.centerAlignContent();
-    const d = ok.addImage(drawDot(C.online, 6));
-    d.imageSize = new Size(6, 6);
-    ok.addSpacer(5);
-    const t = ok.addText("一切正常");
-    t.font = Font.systemFont(11);
-    t.textColor = C.secondary;
-  } else {
-    const limit = Math.min(items.length, CONFIG.largeAttentionLimit);
-    for (let i = 0; i < limit; i++) {
-      const a = items[i];
-      const row = right.addStack();
-      row.layoutVertically();
-      row.spacing = 1;
-
-      const r1 = row.addStack();
-      r1.layoutHorizontally();
-      r1.centerAlignContent();
-      const d = r1.addImage(drawDot(severityColor(a.severity), 6));
-      d.imageSize = new Size(6, 6);
-      r1.addSpacer(5);
-      const m = r1.addText(shortName(a.modelKey, 11));
-      m.font = Font.mediumSystemFont(10);
-      m.textColor = C.primary;
-      m.lineLimit = 1;
-
-      const detail = a.type === "high_latency"
-        ? `延迟 p95 ${Math.round(a.p95Latency / 1000)}s`
-        : a.type;
-      const r2 = row.addText(`  ${detail}`);
-      r2.font = Font.systemFont(9);
-      r2.textColor = C.muted;
-      r2.lineLimit = 1;
-    }
+      txt(row, `$${money(t.cost)}`, 10, "bold", C.text);
+      if (i < d.topModels.length - 1) w.addSpacer(5);
+    });
   }
 
   w.addSpacer();
 
-  // 底部状态行：累计成本 · RPM · TPM
+  // 底部
   const foot = w.addStack();
   foot.layoutHorizontally();
   foot.centerAlignContent();
-
-  const total = foot.addText(`累计 ${money(overview?.totalCost ?? 0, overview?.currency)}`);
-  total.font = Font.systemFont(10);
-  total.textColor = C.secondary;
-
+  const top1 = d.topModels[0];
+  txt(foot, hasOAuth && top1 ? `TOP ${short(top1.name, 14)} $${money(top1.cost)}` : `冷却 ${d.cooldowns} · RPM ${d.rpm}`, 9, "regular", C.sub);
   foot.addSpacer();
-
-  const sep1 = foot.addText("·");
-  sep1.font = Font.systemFont(10);
-  sep1.textColor = C.muted;
-  foot.addSpacer(6);
-
-  const rpm = foot.addText(`${overview?.rpm ?? 0} RPM`);
-  rpm.font = Font.systemFont(10);
-  rpm.textColor = C.secondary;
-
-  foot.addSpacer(6);
-  const sep2 = foot.addText("·");
-  sep2.font = Font.systemFont(10);
-  sep2.textColor = C.muted;
-  foot.addSpacer(6);
-
-  const tpm = foot.addText(`${k(overview?.tpm ?? 0)} TPM`);
-  tpm.font = Font.systemFont(10);
-  tpm.textColor = C.secondary;
-
-  foot.addSpacer();
-
-  const lat = foot.addText(`均 ${avgLatency}ms`);
-  lat.font = Font.systemFont(10);
-  lat.textColor = latencyColor(avgLatency);
-}
-
-function addKpiCard(parent, value, label, color) {
-  const card = parent.addStack();
-  card.layoutVertically();
-  card.setPadding(8, 8, 8, 8);
-  card.backgroundColor = C.card;
-  card.cornerRadius = 8;
-  card.centerAlignContent();
-
-  const v = card.addText(value);
-  v.font = Font.semiboldSystemFont(17);
-  v.textColor = color;
-  v.centerAlignText();
-  v.lineLimit = 1;
-  v.minimumScaleFactor = 0.7;
-
-  card.addSpacer(2);
-
-  const l = card.addText(label);
-  l.font = Font.systemFont(9);
-  l.textColor = C.secondary;
-  l.centerAlignText();
+  txt(foot, `累计 $${money(d.totals.cost)} · ${compact(d.totals.tokens)}T`, 9, "regular", C.dim);
 }
