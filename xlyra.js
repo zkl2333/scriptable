@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.5
+// @version 1.5.6
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.5", // 当前版本(与 @version 保持一致)
+  version: "1.5.6", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -50,36 +50,26 @@ if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
 
 // ==========================================
 // 终端主题
+// 官方文档口径: Device.isUsingDarkAppearance() 不支持组件,
+// 组件内自适应外观要用 Color.dynamic(light, dark), 由 iOS 按当前
+// 外观即时解析, 无需重新渲染。烘焙位图(点阵底纹/LED)无法动态解析,
+// 底纹只画点、底色交给 backgroundColor; LED 取双色下都可读的琥珀色。
 // ==========================================
-const DARK = {
-  bg: new Color("#0b0b0b"),
-  panel: new Color("#131310"),
-  grid: new Color("#ffffff", 0.05),
-  line: new Color("#3a3a3a"),
-  fg: new Color("#e8e6e1"),
-  dim: new Color("#8a877e"),
-  amber: new Color("#ffb224"),
-  led: new Color("#ffb224"),
-  ledDim: new Color("#ffb224", 0.12),
-  green: new Color("#3dd68c"),
-  red: new Color("#f2555a"),
-  yellow: new Color("#ffd60a"),
+const dyn = (light, dark) => new Color.dynamic(light, dark);
+const C = {
+  bg: dyn(new Color("#efece4"), new Color("#0b0b0b")),
+  panel: dyn(new Color("#f8f6f0"), new Color("#131310")),
+  grid: new Color("#808080", 0.22), // 烘焙进底纹图, 深浅底色下都可读
+  line: dyn(new Color("#14100e"), new Color("#3a3a3a")),
+  fg: dyn(new Color("#16130f"), new Color("#e8e6e1")),
+  dim: dyn(new Color("#6f6a5e"), new Color("#8a877e")),
+  amber: dyn(new Color("#b45309"), new Color("#ffb224")),
+  green: dyn(new Color("#0a7d4e"), new Color("#3dd68c")),
+  red: dyn(new Color("#c2242a"), new Color("#f2555a")),
+  yellow: dyn(new Color("#8a6d00"), new Color("#ffd60a")),
+  led: new Color("#f59e0b"), // 烘焙位图, 深浅底色下都可读的琥珀
+  ledDim: new Color("#f59e0b", 0.13),
 };
-const LIGHT = {
-  bg: new Color("#efece4"),
-  panel: new Color("#f8f6f0"),
-  grid: new Color("#000000", 0.07),
-  line: new Color("#14100e"),
-  fg: new Color("#16130f"),
-  dim: new Color("#6f6a5e"),
-  amber: new Color("#b45309"),
-  led: new Color("#c2410c"),
-  ledDim: new Color("#c2410c", 0.14),
-  green: new Color("#0a7d4e"),
-  red: new Color("#c2242a"),
-  yellow: new Color("#8a6d00"),
-};
-const C = Device.isUsingDarkAppearance() ? DARK : LIGHT;
 // 等宽字体三级降级(已核对官方文档):
 //   regularMonospacedSystemFont/boldMonospacedSystemFont(文档 API)
 //   → new Font("Menlo")(iOS 系统自带等宽)
@@ -157,16 +147,14 @@ function addLed(parent, text, opts) {
   return wi;
 }
 
-// 点阵网格底纹 + 四角刻度线(彭博终端背景)
+// 点阵网格底纹(透明底, 底色由 backgroundColor 动态解析, 外观切换即时生效)
 function dotGrid(family) {
   const [w, h] =
     family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
-  ctx.opaque = true;
+  ctx.opaque = false;
   ctx.respectScreenScale = true;
-  ctx.setFillColor(C.bg);
-  ctx.fillRect(new Rect(0, 0, w, h));
   ctx.setFillColor(C.grid);
   for (let y = 5; y < h; y += 9) {
     for (let x = 5; x < w; x += 9) ctx.fillRect(new Rect(x, y, 1.3, 1.3));
@@ -885,6 +873,7 @@ if (proceedToRender) {
   const family = config.widgetFamily || "small";
   const w = new ListWidget();
   w.setPadding(16, 14, 16, 14);
+  w.backgroundColor = C.bg;
   w.backgroundImage = dotGrid(family);
   const now = new Date();
   const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
