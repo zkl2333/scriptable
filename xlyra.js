@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.8
+// @version 1.4.9
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.8", // 当前版本(与 @version 保持一致)
+  version: "1.4.9", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -137,7 +137,8 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
-  ctx.respectScreenScale = true; // 文档确认: 这是布尔属性, 不是方法
+  // 注意: addImage 按像素尺寸显示, 这里不能开 respectScreenScale,
+  // 否则 3x 设备上图片宽 3 倍, 小号组件会把高度等比压塌
   glyphs.forEach((glyph, i) => {
     for (let r = 0; r < 7; r++) {
       for (let col = 0; col < 5; col++) {
@@ -334,7 +335,7 @@ function renderMedium(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   left.addSpacer(5);
-  left.addImage(ledImage("$" + money(data.today_cost), { dot: 2.3, gap: 1 }));
+  left.addImage(ledImage("$" + money(data.today_cost), { dot: 2.6, gap: 1.1 }));
   left.addSpacer(5);
   const sub = left.addText(`总 $${money(data.total_cost)}`);
   sub.font = MONO_SM;
@@ -386,7 +387,7 @@ function renderLarge(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   w.addSpacer(5);
-  w.addImage(ledImage("$" + money(data.today_cost), { dot: 2.9, gap: 1.2 }));
+  w.addImage(ledImage("$" + money(data.today_cost), { dot: 4.2, gap: 1.8 }));
   w.addSpacer(5);
   const sub = w.addText(`TOTAL $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOKENS`);
   sub.font = MONO_SM;
