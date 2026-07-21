@@ -4,100 +4,68 @@
 
 | 脚本 | 用途 |
 | --- | --- |
-| [`xlyra.js`](./xlyra.js) | xLyra AI 网关看板(双模式:Gateway Key 看模型/额度,Admin Token 看请求/成本/站点健康) |
+| [`xlyra.js`](./xlyra.js) | xLyra AI 网关看板(Admin Token:请求/成本/站点健康/Key/模型 TOP3) |
 | [`ikuai.js`](./ikuai.js) | iKuai 软路由状态(在线设备、流量) |
 
 ---
 
 ## xlyra.js
 
-xLyra 桌面看板(**Admin Token 版**),深浅色自适应(状态胶囊、5h/7d 配额面板、分段进度条、摘要格)。
-支持 **Small / Medium / Large** 三种尺寸,内容自适应:没有 OAuth 账号就完全不显示 OAuth 区块,空间让给站点健康和模型成本。
+xLyra 桌面看板(**Admin Token 版**),风格为「彭博终端 × 点阵 LED × 粗野主义」:点阵网格底纹、四角刻度线、LED 点阵发光大数字(5×7 自绘字库,灭灯位保留暗点)、`SITES // 站点健康` 式双语标题、直角硬边框,深浅色自适应。
+支持 **Small / Medium / Large** 三种尺寸,内容自适应:没有 Codex OAuth 账号就完全不显示 OAuth 区块。
 
 数据来源(均需 `xlyra-admin-…` 前缀的 Admin Token):
 
-`dashboard/usage` · `dashboard/epaper-summary` · `health/sites` · `api-keys` · `oauth/connections` · `dashboard/cooldowns`
+`dashboard/epaper-summary` · `health/sites` · `api-keys` · `requests`(今日失败数) · `dashboard/usage`(按站点今日成本)
 
 ### 展示内容
 
 | 尺寸 | 内容 |
 | --- | --- |
-| Small  | 健康状态胶囊 · 今日费用 · 请求数 · 成功率进度条 · 站点健康数 |
-| Medium | 更新时间与「请求/成功率/失败」摘要 + 状态胶囊<br>**有 OAuth**:5h/7d 配额面板(5h 连续条、7d 七段分段条)<br>**无 OAuth**:站点健康列表(停用灰显)<br>底部 3 格:今日 Token · 今日费用 · RPM |
-| Large  | 状态头 + 4 摘要格(有 OAuth 显示 OAuth 格,无则显示 API Key 格)<br>**有 OAuth**:5h/7d 配额面板 + OAuth 账号卡片(套餐徽章、剩余百分比、迷你条)<br>**无 OAuth**:站点健康列表 + 今日模型成本 TOP3<br>底部:TOP1 模型成本 / 冷却·RPM · 累计费用/tokens |
+| Small  | 品牌行 `XLYRA // 控制台` · LED 点阵今日费用 · 累计费用/今日 tokens · 请求数 · 成功率 · 站点健康 · Key 数 · TOP1 模型成本 |
+| Medium | 左列:品牌行 + LED 点阵今日费用 + 累计/今日 tokens;右列 2×2 指标格:请求 · 成功率 · 站点 · KEY |
+| Large  | 品牌行 + 状态芯片(站点/KEY/RPM)· LED 点阵今日费用 + 累计注记<br>4 指标格:请求 · 成功率 · RPM · TPM<br>`SITES // 站点健康`(在线/停用/离线 + 延迟 + 今日成本)<br>`COST TOP3 // 今日模型`<br>`OAUTH // 账号`(仅当存在 Codex OAuth 账号:5h/周剩余额度 + 重置时间) |
 
-自适应规则:OAuth 账号数为 0 时,配额面板、账号卡片、OAuth 摘要格全部不渲染;站点为 0 或当日无模型成本时,对应区块同样隐藏。
+自适应规则:Codex OAuth 账号数为 0 时,OAuth 区块整体不渲染;无站点健康数据或无模型成本时,对应区块同样隐藏。
 
-健康等级(状态胶囊):站点全健康且无冷却、成功率 ≥95% 为「正常」,有降级/冷却/成功率 <95% 为「注意」,成功率 <80% 或无健康站点为「故障」。
-
-> 数据源已实测对齐新版 xLyra(2026-07):`dashboard/usage` 的 KPI 位于 `kpis.*`,`epaper-summary` 的 TOP3 为 `model_top3_today`,均做了宽容解析。
+> 数据层已实测对齐 xLyra(2026-07):`epaper-summary` 为扁平结构(`kpis.*` / `model_top3_today` / `codex_quota`),成功率 = 今日成功 ÷ (成功+失败),失败数单独查 `requests?success=false`;usage 失败不影响核心数据渲染。
 
 ### 安装与配置
 
 1. 将 `xlyra.js` 复制到 iCloud Drive 的 `Scriptable/` 目录(或在 Scriptable App 内新建脚本粘贴内容)。
-2. 在桌面添加 Scriptable 小组件,长按选择 **Edit Widget**。
-3. **Script** 选 `xlyra`。
-4. **Parameter** 填:
+2. 在 Scriptable App 内**运行一次**脚本:依次输入后端地址(如 `https://ai-api.example.com`)和 Admin Token,脚本会发起一次真实请求验证,验证通过才写入 iOS Keychain。
+3. 在桌面添加 Scriptable 小组件,长按选择 **Edit Widget**,**Script** 选 `xlyra` 即可,无需填 Parameter。
+4. 想换凭证:清掉 Keychain 后重新运行,或用 URL 方案打开配置菜单:
    ```
-   https://ai-api.example.com@xlyra-admin-xxxxxxxxxxxxxxxx
+   scriptable:///run/xlyra?action=menu
    ```
-   格式为 `<baseURL>@<adminToken>`,token 里若含 `@`,改用 `|` 分隔也可以。baseURL 末尾带不带 `/v1` 都行,脚本会自动归一化。
-5. 完成。脚本会把凭证写入 iOS Keychain,后续 Parameter 留空也能正常运行。
 
 > Admin Token 在 xLyra 控制台的 **个人资料 → Access Token** 中创建。
-
-### 三种尺寸用同一份脚本
-
-桌面上可以同时放 Small / Medium / Large 三个 widget,Parameter 各填一次即可(或只填一次后,其他留空靠 Keychain)。
 
 ### 自我更新(可选)
 
 脚本可以从远程地址更新自己(原理参考 [Honye/scriptable-scripts](https://github.com/Honye/scriptable-scripts) 的 `updateCode`):
 
-1. 把 `xlyra.js` 发布到可直链访问的位置(已配置为 GitHub Raw:`zkl2333/scriptable`)。
-2. 之后在 **App 内运行**脚本时,会自动比对远程代码头部的 `@version`,发现新版本弹窗确认后覆盖自身。
-3. **桌面组件后台刷新时也会静默自更新**(默认开启,每 6 小时检查一次节流),覆盖后下次刷新生效,全程无需打开 App。
+1. 脚本已配置 GitHub Raw 地址(`zkl2333/scriptable`)。
+2. **桌面组件后台刷新时会静默自更新**(默认开启,每 6 小时节流一次),覆盖后下次刷新生效,全程无需打开 App。
+3. App 内通过配置菜单手动「检查更新」时会弹窗确认版本号。
 
 ```js
-version: "1.2.0",      // 当前版本,与头部 @version 保持一致
+version: "1.4.0",       // 当前版本,与头部 @version 保持一致
+autoUpdate: true,       // 组件后台静默自更新
 updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js",
-widgetAutoUpdate: true, // 组件后台静默自更新;false 则仅 App 内手动运行时检查
-updateCheckHours: 6,   // 检查节流间隔(小时)
+updateCheckInterval: 6 * 3600, // 检查节流(秒)
 ```
 
 - 更新只覆盖 `.js` 文件,Keychain 里的凭证不受影响。
-- 覆盖在下次运行/刷新时生效;若脚本正在编辑页打开,需关闭后重开。
 - 每次改脚本记得同步递增 `@version` 和 `CONFIG.version` 再 push。
-- 首次安装仍需手动把脚本放进 Scriptable(或用分享菜单安装),之后就可以全自动了。
+- 首次安装仍需手动把脚本放进 Scriptable,之后就可以全自动了。
 - 注意 GitHub Raw 有 CDN 缓存,push 后几分钟内手机可能还拉到旧版,属正常现象。
-
-### 修改配置 / 重置
-
-- 改 baseURL 或 token:重新长按 widget → Edit Widget → Parameter 填新值。
-- 清空 Keychain:在 Scriptable App 内新建一次性脚本运行:
-  ```js
-  Keychain.remove("xlyra_base_url");
-  Keychain.remove("xlyra_access_token");
-  ```
-
-### 可调参数(脚本顶部 `CONFIG`)
-
-非敏感,可按需改:
-
-```js
-const CONFIG = {
-  refreshMinutes: 10,    // 刷新间隔(分钟)
-  mediumSiteLimit: 4,    // Medium 站点列表行数上限(无 OAuth 时)
-  largeSiteLimit: 5,     // Large 站点列表行数上限
-  largeOAuthLimit: 2,    // Large OAuth 账号卡片上限
-};
-```
 
 ### 安全说明
 
-- 真实 `baseURL` 和 `accessToken` 只存在于 **iOS Keychain**,不会随 iCloud Drive 的 `.js` 文件同步出去。
+- 真实 `baseURL` 和 `adminToken` 只存在于 **iOS Keychain**,不会随 iCloud Drive 的 `.js` 文件同步出去。
 - 脚本源码可以放心 `git push` 到公开仓库。
-- Widget Parameter 字段保存在 iOS 系统的小组件配置数据库,也不在脚本文件里。
 
 ---
 
