@@ -2,11 +2,11 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: yellow; icon-glyph: hourglass-half;
 // @script-id time-progress
-// @version 1.0.0
+// @version 1.0.1
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
-var UPDATE_KEY_PREFIX = "scriptable.updater";
+var UPDATE_KEY_PREFIX = "zkl2333.widgetUpdater";
 var compareVersions = (left, right) => {
   const leftParts = String(left).split(".").map((part) => Number(part) || 0);
   const rightParts = String(right).split(".").map((part) => Number(part) || 0);
@@ -91,7 +91,7 @@ var createUpdater = ({
 // src/widgets/time-progress.js
 var updater = createUpdater({
   scriptId: "time-progress",
-  version: "1.0.0",
+  version: "1.0.1",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/time-progress.js"
 });
 await updater.autoUpdate();

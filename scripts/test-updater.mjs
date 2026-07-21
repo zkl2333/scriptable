@@ -31,14 +31,28 @@ const createFileManager = (iCloud) => ({
 });
 
 const keychain = new Map();
+const assertLegalKey = (key) => {
+  if (/^scriptable(?:\.|$)/i.test(key)) {
+    throw new Error(`Reserved Keychain prefix: ${key}`);
+  }
+};
 globalThis.FileManager = {
   iCloud: () => createFileManager(true),
   local: () => createFileManager(false),
 };
 globalThis.Keychain = {
-  contains: (key) => keychain.has(key),
-  get: (key) => keychain.get(key),
-  set: (key, value) => keychain.set(key, value),
+  contains: (key) => {
+    assertLegalKey(key);
+    return keychain.has(key);
+  },
+  get: (key) => {
+    assertLegalKey(key);
+    return keychain.get(key);
+  },
+  set: (key, value) => {
+    assertLegalKey(key);
+    keychain.set(key, value);
+  },
 };
 globalThis.Request = class {
   async loadString() {
@@ -57,6 +71,7 @@ try {
   });
 
   assert.equal(await updater.applyUpdateIfAny({ interactive: false }), true);
+  assert.equal(keychain.has('zkl2333.widgetUpdater.test-widget.checkedAt'), true);
   assert.equal(readFileSync(targetPath, 'utf8'), newSource);
   assert.equal(
     readFileSync(join(testDir, 'widget-update-backups', 'test-widget.js.bak'), 'utf8'),

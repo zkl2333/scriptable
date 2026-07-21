@@ -1,5 +1,5 @@
 const DEFAULT_CHECK_INTERVAL = 24 * 3600;
-const UPDATE_KEY_PREFIX = 'scriptable.updater';
+const UPDATE_KEY_PREFIX = 'zkl2333.widgetUpdater';
 
 const compareVersions = (left, right) => {
   const leftParts = String(left).split('.').map((part) => Number(part) || 0);

@@ -2,11 +2,11 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: teal; icon-glyph: magic;
 // @script-id work-helper
-// @version 2.0.0
+// @version 2.0.1
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
-var UPDATE_KEY_PREFIX = "scriptable.updater";
+var UPDATE_KEY_PREFIX = "zkl2333.widgetUpdater";
 var compareVersions = (left, right) => {
   const leftParts = String(left).split(".").map((part) => Number(part) || 0);
   const rightParts = String(right).split(".").map((part) => Number(part) || 0);
@@ -91,7 +91,7 @@ var createUpdater = ({
 // src/widgets/work-helper.js
 var updater = createUpdater({
   scriptId: "work-helper",
-  version: "2.0.0",
+  version: "2.0.1",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/work-helper.js"
 });
 await updater.autoUpdate();

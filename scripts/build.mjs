@@ -9,22 +9,22 @@ const outputDir = resolve(rootDir, 'dist');
 const rawBaseURL = 'https://raw.githubusercontent.com/zkl2333/scriptable/main/dist';
 
 const widgets = [
-  { name: 'hitokoto', version: '1.0.0', iconColor: 'green', iconGlyph: 'magic' },
-  { name: 'ikuai', version: '1.0.0', iconColor: 'blue', iconGlyph: 'network-wired' },
+  { name: 'hitokoto', version: '1.0.1', iconColor: 'green', iconGlyph: 'magic' },
+  { name: 'ikuai', version: '1.0.1', iconColor: 'blue', iconGlyph: 'network-wired' },
   {
     name: 'milk-tea-reminder',
-    version: '1.0.0',
+    version: '1.0.1',
     iconColor: 'orange',
     iconGlyph: 'coffee',
   },
   {
     name: 'time-progress',
-    version: '1.0.0',
+    version: '1.0.1',
     iconColor: 'yellow',
     iconGlyph: 'hourglass-half',
   },
-  { name: 'work-helper', version: '2.0.0', iconColor: 'teal', iconGlyph: 'magic' },
-  { name: 'xlyra', version: '1.6.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
+  { name: 'work-helper', version: '2.0.1', iconColor: 'teal', iconGlyph: 'magic' },
+  { name: 'xlyra', version: '1.6.2', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>
