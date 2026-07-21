@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.1
+// @version 1.4.2
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里本脚本最下方点「运行」一次:
@@ -26,7 +26,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.1", // 当前版本(与 @version 保持一致)
+  version: "1.4.2", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -77,11 +77,19 @@ const LIGHT = {
   yellow: "#8a6d00",
 };
 const C = Device.isUsingDarkAppearance() ? DARK : LIGHT;
-// 等宽字体带降级: 老版 Scriptable 没有 Font.monospacedSystemFont
+// 等宽字体三级降级: monospacedSystemFont(新版 API)
+//   → new Font("Menlo")(iOS 系统自带等宽, 老 Scriptable 也能用)
+//   → 系统字体兜底
 const _monoFont =
   typeof Font.monospacedSystemFont === "function"
     ? (s, w) => Font.monospacedSystemFont(s, w)
-    : (s, w) => (w === "bold" ? Font.boldSystemFont(s) : Font.regularSystemFont(s));
+    : (s, w) => {
+        try {
+          return new Font(w === "bold" ? "Menlo-Bold" : "Menlo", s);
+        } catch (e) {
+          return w === "bold" ? Font.boldSystemFont(s) : Font.regularSystemFont(s);
+        }
+      };
 const MONO = _monoFont(9, "regular");
 const MONO_B = _monoFont(9, "bold");
 const MONO_SM = _monoFont(8, "regular");
