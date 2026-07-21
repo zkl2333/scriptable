@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.5
+// @version 1.4.6
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,12 +30,13 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.5", // 当前版本(与 @version 保持一致)
+  version: "1.4.6", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
 
 const KC_URL = "xlyra.baseURL";
+const KC_URL_LEGACY = "xlyra.consoleURL"; // 旧版组件(xlyra-widget)的地址键名
 const KC_TOKEN = "xlyra.adminToken";
 const KC_UPDATE_AT = "xlyra.updateCheckedAt";
 
@@ -499,7 +500,12 @@ function renderLarge(w, data, time) {
 // ==========================================
 function loadAuth() {
   if (CONFIG.baseURL && CONFIG.adminToken) return { baseURL: CONFIG.baseURL, adminToken: CONFIG.adminToken };
-  const baseURL = Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "";
+  let baseURL = Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "";
+  // 兼容旧版键名: 命中则迁移到新键名, 一次到位
+  if (!baseURL && Keychain.contains(KC_URL_LEGACY)) {
+    baseURL = Keychain.get(KC_URL_LEGACY);
+    if (baseURL) Keychain.set(KC_URL, baseURL);
+  }
   const adminToken = Keychain.contains(KC_TOKEN) ? Keychain.get(KC_TOKEN) : "";
   return { baseURL, adminToken };
 }
