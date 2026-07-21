@@ -1,6 +1,13 @@
 {
   "private": true,
-  "dependencies": {
-    "@types/scriptable-ios": "^1.7.7"
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test:updater": "node scripts/test-updater.mjs",
+    "check": "npm run test:updater && npm run build && node --check dist/hitokoto.js && node --check dist/ikuai.js && node --check dist/milk-tea-reminder.js && node --check dist/time-progress.js && node --check dist/work-helper.js && node --check dist/xlyra.js"
+  },
+  "devDependencies": {
+    "@types/scriptable-ios": "^1.7.7",
+    "esbuild": "^0.25.0"
   }
 }

@@ -1,6 +1,12 @@
-// Variables used by Scriptable.
-// These must be at the very top of the file. Do not edit.
-// icon-color: green; icon-glyph: magic;
+import { createUpdater } from '../lib/updater.js';
+
+const updater = createUpdater({
+  scriptId: __SCRIPT_ID__,
+  version: __SCRIPT_VERSION__,
+  updateURL: __UPDATE_URL__,
+});
+await updater.autoUpdate();
+
 const request = new Request("https://v1.hitokoto.cn/?c=d&encode=text")
 
 const runder = async ()=>{          

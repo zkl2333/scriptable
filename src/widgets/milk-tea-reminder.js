@@ -1,6 +1,12 @@
-// Variables used by Scriptable.
-// These must be at the very top of the file. Do not edit.
-// icon-color: orange; icon-glyph: coffee;
+import { createUpdater } from '../lib/updater.js';
+
+const updater = createUpdater({
+  scriptId: __SCRIPT_ID__,
+  version: __SCRIPT_VERSION__,
+  updateURL: __UPDATE_URL__,
+});
+await updater.autoUpdate();
+
 if(config.runsInWidget){
   const widget = new ListWidget()
   const text = widget.addText("来一杯")

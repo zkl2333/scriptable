@@ -1,65 +1,120 @@
-// ==========================================
-// XLYRA · 控制台看板
-// 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
-// 风格: 彭博终端 × 点阵 LED × 粗野主义
-// 作者: zkl2333
-// @version 1.5.7
-// ==========================================
-//
-// 【首次配置】在 Scriptable 里运行一次脚本:
-//   依次输入 后端地址 + Admin Access Token, 自动存入 Keychain,
-//   并发起一次真实请求验证, 验证失败会提示且不会保存。
-//   想换凭证? 运行脚本 → 菜单里选「重新配置凭证」即可覆盖。
-//
-// 【App 内运行 = 菜单】在 Scriptable 里点运行会弹出菜单 sheet:
-//   刷新预览 / 重新配置凭证 / 检查更新。
-//   桌面组件后台刷新时不会弹菜单, 只渲染。
-//
-// 【自动更新】脚本内置自更新: 添加到桌面组件后,
-//   每次刷新都会比对 GitHub 上的 @version, 有新版本会在
-//   后台静默更新自己并重新渲染, 无需任何操作。
-//   不想自动更新? 把下面 CONFIG.autoUpdate 改成 false。
-//
-// ==========================================
+// Variables used by Scriptable.
+// These must be at the very top of the file. Do not edit.
+// icon-color: purple; icon-glyph: tachometer-alt;
+// @script-id xlyra
+// @version 1.6.0
 
-// ==========================================
-// 配置
-// ==========================================
-const CONFIG = {
-  baseURL: "",
-  adminToken: "",
-  timeoutMs: 8000, // 单次请求超时(毫秒)
-  autoUpdate: true, // 自动更新开关
-  version: "1.5.7", // 当前版本(与 @version 保持一致)
-  updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
-  updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
+// src/lib/updater.js
+var DEFAULT_CHECK_INTERVAL = 24 * 3600;
+var UPDATE_KEY_PREFIX = "scriptable.updater";
+var compareVersions = (left, right) => {
+  const leftParts = String(left).split(".").map((part) => Number(part) || 0);
+  const rightParts = String(right).split(".").map((part) => Number(part) || 0);
+  const length = Math.max(leftParts.length, rightParts.length, 3);
+  for (let i = 0; i < length; i++) {
+    const difference = (leftParts[i] || 0) - (rightParts[i] || 0);
+    if (difference !== 0) return difference < 0 ? -1 : 1;
+  }
+  return 0;
+};
+var readMetadata = (source) => ({
+  scriptId: source.match(/@script-id\s+([a-z0-9-]+)/i)?.[1],
+  version: source.match(/@version\s+([0-9]+(?:\.[0-9]+){1,2})/)?.[1]
+});
+var getTargetFileManager = (filePath) => {
+  try {
+    const iCloud = FileManager.iCloud();
+    if (iCloud.isFileStoredIniCloud(filePath)) return iCloud;
+  } catch {
+  }
+  return FileManager.local();
+};
+var saveBackup = (scriptId, source) => {
+  const local = FileManager.local();
+  const backupDir = local.joinPath(local.libraryDirectory(), "widget-update-backups");
+  if (!local.fileExists(backupDir)) local.createDirectory(backupDir, true);
+  local.writeString(local.joinPath(backupDir, `${scriptId}.js.bak`), source);
+};
+var createUpdater = ({
+  scriptId,
+  version,
+  updateURL,
+  checkInterval = DEFAULT_CHECK_INTERVAL
+}) => {
+  const checkedAtKey = `${UPDATE_KEY_PREFIX}.${scriptId}.checkedAt`;
+  const checkForUpdate = async ({ force = false } = {}) => {
+    const lastCheckedAt = Keychain.contains(checkedAtKey) ? Number(Keychain.get(checkedAtKey)) : 0;
+    const now = Math.floor(Date.now() / 1e3);
+    if (!force && now - lastCheckedAt < checkInterval) return null;
+    Keychain.set(checkedAtKey, String(now));
+    const request = new Request(`${updateURL}?t=${Date.now()}`);
+    request.timeoutInterval = 10;
+    const source = await request.loadString();
+    const metadata = readMetadata(source);
+    if (metadata.scriptId !== scriptId) {
+      throw new Error(`更新文件标识不匹配：${metadata.scriptId || "missing"}`);
+    }
+    if (!metadata.version) throw new Error("更新文件缺少版本号");
+    if (source.length < 200) throw new Error("更新文件内容不完整");
+    if (compareVersions(metadata.version, version) <= 0) return null;
+    return { source, version: metadata.version };
+  };
+  const applyUpdateIfAny = async ({ interactive = false } = {}) => {
+    const update = await checkForUpdate({ force: interactive });
+    if (!update) return false;
+    if (interactive) {
+      const alert = new Alert();
+      alert.title = `发现新版本 v${update.version}`;
+      alert.message = `是否更新 ${Script.name()}？`;
+      alert.addAction("更新");
+      alert.addCancelAction("取消");
+      if (await alert.presentAlert() !== 0) return false;
+    }
+    const targetPath = module.filename;
+    if (!targetPath) throw new Error("无法定位当前脚本文件");
+    const fileManager = getTargetFileManager(targetPath);
+    saveBackup(scriptId, fileManager.readString(targetPath));
+    fileManager.writeString(targetPath, update.source);
+    return true;
+  };
+  const autoUpdate = async () => {
+    if (config.runsInApp && config.runsInActionExtension) return false;
+    try {
+      return await applyUpdateIfAny();
+    } catch {
+      return false;
+    }
+  };
+  return { applyUpdateIfAny, autoUpdate, checkForUpdate };
 };
 
-const KC_URL = "xlyra.baseURL";
-const KC_URL_LEGACY = "xlyra.consoleURL"; // 旧版组件(xlyra-widget)的地址键名
-const KC_TOKEN = "xlyra.adminToken";
-const KC_UPDATE_AT = "xlyra.updateCheckedAt";
-
-// 自更新尽早执行: 即使后面的渲染 API 在这台设备上崩了,
-// 组件也能靠后台刷新自愈(函数声明会提升, 这里调用没问题)
+// src/widgets/xlyra.js
+var CONFIG = {
+  baseURL: "",
+  adminToken: "",
+  timeoutMs: 8e3,
+  // 单次请求超时(毫秒)
+  autoUpdate: true,
+  // 自动更新开关
+  version: "1.6.0"
+};
+var KC_URL = "xlyra.baseURL";
+var KC_URL_LEGACY = "xlyra.consoleURL";
+var KC_TOKEN = "xlyra.adminToken";
+var updater = createUpdater({
+  scriptId: "xlyra",
+  version: "1.6.0",
+  updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/xlyra.js"
+});
 if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
-  try {
-    await applyUpdateIfAny({ interactive: false });
-  } catch (e) {}
+  await updater.autoUpdate();
 }
-
-// ==========================================
-// 终端主题
-// 官方文档口径: Device.isUsingDarkAppearance() 不支持组件,
-// 组件内自适应外观要用 Color.dynamic(light, dark), 由 iOS 按当前
-// 外观即时解析, 无需重新渲染。烘焙位图(点阵底纹/LED)无法动态解析,
-// 底纹只画点、底色交给 backgroundColor; LED 取双色下都可读的琥珀色。
-// ==========================================
-const dyn = (light, dark) => Color.dynamic(light, dark);
-const C = {
+var dyn = (light, dark) => Color.dynamic(light, dark);
+var C = {
   bg: dyn(new Color("#efece4"), new Color("#0b0b0b")),
   panel: dyn(new Color("#f8f6f0"), new Color("#131310")),
-  grid: new Color("#808080", 0.22), // 烘焙进底纹图, 深浅底色下都可读
+  grid: new Color("#808080", 0.22),
+  // 烘焙进底纹图, 深浅底色下都可读
   line: dyn(new Color("#14100e"), new Color("#3a3a3a")),
   fg: dyn(new Color("#16130f"), new Color("#e8e6e1")),
   dim: dyn(new Color("#6f6a5e"), new Color("#8a877e")),
@@ -67,31 +122,21 @@ const C = {
   green: dyn(new Color("#0a7d4e"), new Color("#3dd68c")),
   red: dyn(new Color("#c2242a"), new Color("#f2555a")),
   yellow: dyn(new Color("#8a6d00"), new Color("#ffd60a")),
-  led: new Color("#f59e0b"), // 烘焙位图, 深浅底色下都可读的琥珀
-  ledDim: new Color("#f59e0b", 0.13),
+  led: new Color("#f59e0b"),
+  // 烘焙位图, 深浅底色下都可读的琥珀
+  ledDim: new Color("#f59e0b", 0.13)
 };
-// 等宽字体三级降级(已核对官方文档):
-//   regularMonospacedSystemFont/boldMonospacedSystemFont(文档 API)
-//   → new Font("Menlo")(iOS 系统自带等宽)
-//   → 系统字体兜底
-const _monoFont =
-  typeof Font.regularMonospacedSystemFont === "function"
-    ? (s, w) => (w === "bold" ? Font.boldMonospacedSystemFont(s) : Font.regularMonospacedSystemFont(s))
-    : (s, w) => {
-        try {
-          return new Font(w === "bold" ? "Menlo-Bold" : "Menlo", s);
-        } catch (e) {
-          return w === "bold" ? Font.boldSystemFont(s) : Font.regularSystemFont(s);
-        }
-      };
-const MONO = _monoFont(9, "regular");
-const MONO_B = _monoFont(9, "bold");
-const MONO_SM = _monoFont(8, "regular");
-
-// ==========================================
-// 5×7 点阵 LED 字库
-// ==========================================
-const LED_FONT = {
+var _monoFont = typeof Font.regularMonospacedSystemFont === "function" ? (s, w) => w === "bold" ? Font.boldMonospacedSystemFont(s) : Font.regularMonospacedSystemFont(s) : (s, w) => {
+  try {
+    return new Font(w === "bold" ? "Menlo-Bold" : "Menlo", s);
+  } catch (e) {
+    return w === "bold" ? Font.boldSystemFont(s) : Font.regularSystemFont(s);
+  }
+};
+var MONO = _monoFont(9, "regular");
+var MONO_B = _monoFont(9, "bold");
+var MONO_SM = _monoFont(8, "regular");
+var LED_FONT = {
   "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
   "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
   "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
@@ -113,10 +158,8 @@ const LED_FONT = {
   K: ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
   M: ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
   B: ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
-  " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
+  " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."]
 };
-
-// 把文本渲染成 LED 点阵图(灭灯位保留暗点, 像真数码管)
 function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const glyphs = [...String(text)].map((ch) => LED_FONT[ch] || LED_FONT[" "]);
   const cw = 5 * (dot + gap);
@@ -125,7 +168,7 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
-  ctx.respectScreenScale = true; // 3x 像素保证清晰; 显示尺寸由 addLed 的 imageSize 锁定
+  ctx.respectScreenScale = true;
   glyphs.forEach((glyph, i) => {
     for (let r = 0; r < 7; r++) {
       for (let col = 0; col < 5; col++) {
@@ -137,20 +180,14 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   });
   return { image: ctx.getImage(), width: w, height: h };
 }
-
-// 添加 LED 点阵图并用 imageSize 锁定逻辑尺寸(文档: 不设则按图片像素全尺寸显示,
-// 3x 设备上会被等比压缩; 锁定后既清晰又不会被压塌)
 function addLed(parent, text, opts) {
   const led = ledImage(text, opts);
   const wi = parent.addImage(led.image);
   wi.imageSize = new Size(led.width, led.height);
   return wi;
 }
-
-// 点阵网格底纹(透明底, 底色由 backgroundColor 动态解析, 外观切换即时生效)
 function dotGrid(family) {
-  const [w, h] =
-    family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
+  const [w, h] = family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
@@ -161,10 +198,6 @@ function dotGrid(family) {
   }
   return ctx.getImage();
 }
-
-// ==========================================
-// 组件绘制
-// ==========================================
 function brandRow(w, time) {
   const s = w.addStack();
   s.centerAlignContent();
@@ -180,41 +213,17 @@ function brandRow(w, time) {
   t.font = MONO_SM;
   t.textColor = C.dim;
 }
-
 function sectionTitle(w, text) {
   const t = w.addText("▸ " + text);
   t.font = MONO_B;
   t.textColor = C.amber;
 }
-
 function dash(w) {
   const t = w.addText("-".repeat(30));
   t.font = MONO_SM;
   t.textColor = C.line;
   t.lineLimit = 1;
 }
-
-function chip(parent, { label, value, dot }) {
-  const st = parent.addStack();
-  st.borderWidth = 1;
-  st.borderColor = C.line;
-  st.cornerRadius = 0;
-  st.backgroundColor = C.panel;
-  st.setPadding(3, 6, 3, 6);
-  st.centerAlignContent();
-  const d = st.addText("●");
-  d.font = _monoFont(7, "regular");
-  d.textColor = dot;
-  st.addSpacer(4);
-  const l = st.addText(label + " ");
-  l.font = MONO_SM;
-  l.textColor = C.dim;
-  const v = st.addText(value);
-  v.font = MONO_B;
-  v.textColor = C.fg;
-  return st;
-}
-
 function cell(parent, label, value, valueColor) {
   const c = parent.addStack();
   c.layoutVertically();
@@ -232,14 +241,9 @@ function cell(parent, label, value, valueColor) {
   v.textColor = valueColor || C.fg;
   v.minimumScaleFactor = 0.6;
 }
-
-// ==========================================
-// 小组件
-// ==========================================
 function renderSmall(w, data, time) {
   brandRow(w, time);
   w.addSpacer(8);
-
   const lab = w.addText("TODAY // 今日费用");
   lab.font = MONO_SM;
   lab.textColor = C.dim;
@@ -252,7 +256,6 @@ function renderSmall(w, data, time) {
   w.addSpacer(7);
   dash(w);
   w.addSpacer(6);
-
   const r1 = w.addStack();
   const a1 = r1.addText("请求 ");
   a1.font = MONO_SM;
@@ -267,9 +270,7 @@ function renderSmall(w, data, time) {
   const v2 = r1.addText(data.success_rate + "%");
   v2.font = MONO_B;
   v2.textColor = data.success_rate >= 99 ? C.green : data.success_rate >= 95 ? C.yellow : C.red;
-
   w.addSpacer(5);
-
   const r2 = w.addStack();
   const b1 = r2.addText("站点 ");
   b1.font = MONO_SM;
@@ -284,7 +285,6 @@ function renderSmall(w, data, time) {
   const u2 = r2.addText(data.keys_active + "/" + data.keys_total);
   u2.font = MONO_B;
   u2.textColor = data.keys_active === data.keys_total ? C.fg : C.yellow;
-
   if (data.top_models && data.top_models.length) {
     w.addSpacer(7);
     dash(w);
@@ -300,18 +300,11 @@ function renderSmall(w, data, time) {
     c1.textColor = C.amber;
   }
 }
-
-// ==========================================
-// 中组件
-// ==========================================
 function renderMedium(w, data, time) {
   brandRow(w, time);
   w.addSpacer(6);
-
   const mid = w.addStack();
   mid.topAlignContent();
-
-  // 左列: LED 大数 + 累计 + 实时流量
   const left = mid.addStack();
   left.layoutVertically();
   left.size = new Size(150, 0);
@@ -319,7 +312,7 @@ function renderMedium(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   left.addSpacer(3);
-  addLed(left, money(data.today_cost), { dot: 2.4, gap: 1.0 });
+  addLed(left, money(data.today_cost), { dot: 2.4, gap: 1 });
   left.addSpacer(3);
   const sub = left.addText(`总 $${money(data.total_cost)} · ${compact(data.today_tokens)} TOK`);
   sub.font = MONO_SM;
@@ -328,10 +321,7 @@ function renderMedium(w, data, time) {
   const sub2 = left.addText(`RPM ${data.rpm_60s ?? 0} · TPM ${compact(data.tpm_60s ?? 0)}`);
   sub2.font = MONO_SM;
   sub2.textColor = C.dim;
-
   mid.addSpacer(10);
-
-  // 右列: 今日模型成本 TOP3(无数据时整块隐藏占位)
   const right = mid.addStack();
   right.layoutVertically();
   const tops = (data.top_models || []).slice(0, 3);
@@ -354,10 +344,7 @@ function renderMedium(w, data, time) {
       if (i < tops.length - 1) right.addSpacer(3);
     });
   }
-
-  w.addSpacer(); // 弹性空间, 把指标行压到底部
-
-  // 底部: 5 个指标格, 弹性间距均分整行(终端磁带)
+  w.addSpacer();
   const row = w.addStack();
   cell(row, "请求", String(data.today_success_requests ?? 0));
   row.addSpacer();
@@ -374,20 +361,13 @@ function renderMedium(w, data, time) {
   row.addSpacer();
   cell(row, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
 }
-
-// ==========================================
-// 大组件
-// ==========================================
 function renderLarge(w, data, time) {
   brandRow(w, time);
   w.addSpacer(8);
-
   const lab = w.addText("TODAY // 今日费用");
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   w.addSpacer(4);
-
-  // LED 大数 + 右侧汇总列(填满宽幅空区)
   const ledRow = w.addStack();
   ledRow.centerAlignContent();
   addLed(ledRow, money(data.today_cost), { dot: 4.2, gap: 1.8 });
@@ -410,8 +390,6 @@ function renderLarge(w, data, time) {
   a3.textColor = C.dim;
   a3.lineLimit = 1;
   w.addSpacer(10);
-
-  // 指标磁带: 5 格弹性均分整行
   const cellsRow = w.addStack();
   cell(cellsRow, "请求", String(data.today_success_requests ?? 0));
   cellsRow.addSpacer();
@@ -428,8 +406,6 @@ function renderLarge(w, data, time) {
   cellsRow.addSpacer();
   cell(cellsRow, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
   w.addSpacer(10);
-
-  // 站点健康(无 OAuth 区块时高度预算充裕, 全量展示; 有 OAuth 时收紧到 4 行)
   sectionTitle(w, "SITES // 站点健康");
   w.addSpacer(4);
   const maxSites = data.oauth ? 4 : 7;
@@ -459,8 +435,6 @@ function renderLarge(w, data, time) {
     more.font = MONO_SM;
     more.textColor = C.dim;
   }
-
-  // 模型 TOP3
   if (data.top_models && data.top_models.length) {
     w.addSpacer(6);
     sectionTitle(w, "COST TOP3 // 今日模型");
@@ -483,8 +457,6 @@ function renderLarge(w, data, time) {
       if (i < 2) w.addSpacer(4);
     });
   }
-
-  // OAuth 额度(有数据才显示)
   if (data.oauth) {
     w.addSpacer(8);
     dash(w);
@@ -521,29 +493,19 @@ function renderLarge(w, data, time) {
     }
   }
 }
-
-// ==========================================
-// 数据
-// ==========================================
 function loadAuth() {
   if (CONFIG.baseURL && CONFIG.adminToken) return { baseURL: CONFIG.baseURL, adminToken: CONFIG.adminToken };
   let baseURL = Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "";
-  // 兼容旧版键名: 命中则迁移到新键名, 一次到位
   if (!baseURL && Keychain.contains(KC_URL_LEGACY)) {
     baseURL = Keychain.get(KC_URL_LEGACY);
     if (baseURL) Keychain.set(KC_URL, baseURL);
   }
   let adminToken = Keychain.contains(KC_TOKEN) ? Keychain.get(KC_TOKEN) : "";
-  // 兼容早期版本的组件 Parameter 配置: <baseURL>@<token> 或 <baseURL>|<token>
   if ((!baseURL || !adminToken) && args.widgetParameter) {
     const p = String(args.widgetParameter).trim();
     const i = p.indexOf("|") > 0 ? p.indexOf("|") : p.indexOf("@");
     if (i > 0) {
-      const u = p
-        .slice(0, i)
-        .trim()
-        .replace(/\/v1\/?$/i, "") // 网关 /v1 后缀对 Admin API 是错的, 归一化掉
-        .replace(/\/+$/, "");
+      const u = p.slice(0, i).trim().replace(/\/v1\/?$/i, "").replace(/\/+$/, "");
       const t = p.slice(i + 1).trim();
       if (u && t) {
         baseURL = u;
@@ -555,40 +517,31 @@ function loadAuth() {
   }
   return { baseURL, adminToken };
 }
-
 async function fetchAdmin(baseURL, token, path) {
   const req = new Request(baseURL.replace(/\/+$/, "") + path);
   req.method = "GET";
   req.headers = { Accept: "application/json", "X-Access-Token": token };
-  req.timeoutInterval = CONFIG.timeoutMs / 1000;
+  req.timeoutInterval = CONFIG.timeoutMs / 1e3;
   return req.loadJSON();
 }
-
 async function loadData() {
   const { baseURL, adminToken } = loadAuth();
   if (!baseURL || !adminToken) return { configured: false };
-
-  // 今日零点(本地时区 → RFC3339), 用于统计今日失败请求数
-  const dayStart = new Date();
+  const dayStart = /* @__PURE__ */ new Date();
   dayStart.setHours(0, 0, 0, 0);
   const createdFrom = encodeURIComponent(dayStart.toISOString());
-
-  const opt = (p) => p.catch(() => null); // 增强项失败不拖垮核心数据
+  const opt = (p) => p.catch(() => null);
   const [epaper, health, keys, failedReqs, usage] = await Promise.all([
     fetchAdmin(baseURL, adminToken, "/api/v1/dashboard/epaper-summary"),
     fetchAdmin(baseURL, adminToken, "/api/v1/health/sites"),
     fetchAdmin(baseURL, adminToken, "/api/v1/api-keys?page=1&page_size=200"),
     opt(fetchAdmin(baseURL, adminToken, `/api/v1/requests?success=false&page_size=1&created_from=${createdFrom}`)),
-    opt(fetchAdmin(baseURL, adminToken, "/api/v1/dashboard/usage")),
+    opt(fetchAdmin(baseURL, adminToken, "/api/v1/dashboard/usage"))
   ]);
-
-  // epaper-summary 是扁平结构: kpis / model_top3_today / codex_quota
   const kpis = epaper.kpis || {};
   const okReqs = kpis.today_requests ?? 0;
   const failed = failedReqs?.meta?.total ?? 0;
   const totalReq = okReqs + failed;
-
-  // 站点健康 + 今日按站点成本(usage 的 daily_site_cost 按 epaper.date 匹配"今日")
   const siteCostById = {};
   for (const row of usage?.charts?.daily_site_cost ?? []) {
     if (row.date === epaper.date) siteCostById[row.site_id] = row.cost;
@@ -602,16 +555,12 @@ async function loadData() {
       enabled,
       online,
       latency_ms: it.health?.recent_avg_latency_ms != null ? Math.round(it.health.recent_avg_latency_ms) : null,
-      today_cost: siteCostById[it.site?.id] ?? 0,
+      today_cost: siteCostById[it.site?.id] ?? 0
     };
   });
   const sitesOnline = sites.filter((s) => s.online).length;
-
-  // 下游 Key
   const keyItems = Array.isArray(keys?.items) ? keys.items : [];
   const keysActive = keyItems.filter((k) => k.status === "active").length;
-
-  // Codex OAuth 额度摘要(account_count 为 0 时整块不展示)
   const quota = epaper.codex_quota || {};
   let oauth = null;
   if ((quota.account_count ?? 0) > 0) {
@@ -624,13 +573,12 @@ async function loadData() {
           name: `Codex ×${quota.account_count}`,
           status: low(five) || low(weekly) ? "warning" : "ok",
           five_hour_remaining_percent: five,
-          weekly_remaining_percent: weekly,
-        },
+          weekly_remaining_percent: weekly
+        }
       ],
-      next_reset_at: quota.five_hour?.reset_at ?? quota.weekly?.reset_at ?? null,
+      next_reset_at: quota.five_hour?.reset_at ?? quota.weekly?.reset_at ?? null
     };
   }
-
   return {
     configured: true,
     today_cost: kpis.today_cost ?? 0,
@@ -638,7 +586,7 @@ async function loadData() {
     today_tokens: kpis.today_tokens ?? 0,
     today_success_requests: okReqs,
     today_failed: failed,
-    success_rate: totalReq > 0 ? +((okReqs / totalReq) * 100).toFixed(1) : 100,
+    success_rate: totalReq > 0 ? +(okReqs / totalReq * 100).toFixed(1) : 100,
     sites_total: sites.length,
     sites_online: sitesOnline,
     keys_total: keyItems.length,
@@ -647,80 +595,27 @@ async function loadData() {
     tpm_60s: kpis.tpm_used ?? 0,
     top_models: (Array.isArray(epaper.model_top3_today) ? epaper.model_top3_today : []).map((m) => ({
       model: m.model_key,
-      cost: m.cost,
+      cost: m.cost
     })),
     oauth,
-    sites,
+    sites
   };
 }
-
-// ==========================================
-// 自更新
-// ==========================================
-function semverCompare(a, b) {
-  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < 3; i++) {
-    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
-  }
-  return 0;
-}
-
-async function checkForUpdate({ force = false, interactive = false } = {}) {
-  try {
-    if (!force) {
-      const last = Keychain.contains(KC_UPDATE_AT) ? Number(Keychain.get(KC_UPDATE_AT)) : 0;
-      if (Date.now() / 1000 - last < CONFIG.updateCheckInterval) return null;
-    }
-    Keychain.set(KC_UPDATE_AT, String(Math.floor(Date.now() / 1000)));
-    const req = new Request(CONFIG.updateURL + "?t=" + Date.now());
-    req.timeoutInterval = 10;
-    const source = await req.loadString();
-    const m = source.match(/@version\s+([\d.]+)/);
-    if (!m || semverCompare(m[1], CONFIG.version) <= 0) return null;
-    return { version: m[1], source };
-  } catch (e) {
-    return null;
-  }
-}
-
-async function applyUpdateIfAny({ interactive = false } = {}) {
-  const found = await checkForUpdate({ force: interactive, interactive });
-  if (!found) return false;
-  if (interactive) {
-    const alert = new Alert();
-    alert.title = "发现新版本 v" + found.version;
-    alert.message = "是否立即更新 xlyra 组件脚本?";
-    alert.addAction("更新");
-    alert.addCancelAction("取消");
-    if ((await alert.presentAlert()) !== 0) return false;
-  }
-  const fm = FileManager.local();
-  const path = fm.joinPath(fm.documentsDirectory(), Script.name() + ".js");
-  fm.writeString(path, found.source);
-  return true;
-}
-
-// ==========================================
-// 引导配置
-// ==========================================
 async function runSetup() {
   const alert = new Alert();
   alert.title = "XLYRA // 组件配置";
   alert.message = "依次输入后端地址和 Admin Token, 将发起一次真实请求验证。\n\n已配置过? 继续 = 覆盖旧凭证";
   alert.addAction("开始配置");
   alert.addCancelAction("取消");
-  if ((await alert.presentAlert()) !== 0) return;
-
+  if (await alert.presentAlert() !== 0) return;
   const urlAlert = new Alert();
   urlAlert.title = "后端地址";
   urlAlert.message = "例如 http://192.168.1.10:5801";
   urlAlert.addTextField("http://", Keychain.contains(KC_URL) ? Keychain.get(KC_URL) : "");
   urlAlert.addAction("下一步");
   urlAlert.addCancelAction("取消");
-  if ((await urlAlert.presentAlert()) !== 0) return;
+  if (await urlAlert.presentAlert() !== 0) return;
   const baseURL = urlAlert.textFieldValue(0).trim().replace(/\/+$/, "");
-
   const tokenAlert = new Alert();
   tokenAlert.title = "Admin Access Token";
   tokenAlert.message = "控制台 → 个人设置 → Access Token";
@@ -728,9 +623,8 @@ async function runSetup() {
   else tokenAlert.addTextField("xlyra-admin-...");
   tokenAlert.addAction("验证并保存");
   tokenAlert.addCancelAction("取消");
-  if ((await tokenAlert.presentAlert()) !== 0) return;
+  if (await tokenAlert.presentAlert() !== 0) return;
   const token = tokenAlert.textFieldValue(0).trim();
-
   try {
     await fetchAdmin(baseURL, token, "/api/v1/dashboard/epaper-summary");
   } catch (e) {
@@ -739,10 +633,9 @@ async function runSetup() {
     fail.message = "无法连接或 Token 无效, 未保存。\n\n" + e;
     fail.addAction("重试");
     fail.addCancelAction("取消");
-    if ((await fail.presentAlert()) === 0) return runSetup();
+    if (await fail.presentAlert() === 0) return runSetup();
     return;
   }
-
   Keychain.set(KC_URL, baseURL);
   Keychain.set(KC_TOKEN, token);
   const done = new Alert();
@@ -751,30 +644,25 @@ async function runSetup() {
   done.addAction("完成");
   await done.presentAlert();
 }
-
-// 返回值: true = 继续往下渲染预览, false = 直接结束
-// 菜单用 UITable 实现(最老的 Scriptable API, 任何版本都是原生表格 sheet 观感)
 async function runMenu() {
-  for (;;) {
+  for (; ; ) {
     let action = null;
     const table = new UITable();
     table.showSeparators = true;
-
     const head = new UITableRow();
     head.isHeader = true;
     head.height = 34;
     const hcell = head.addText(`XLYRA // 控制台   v${CONFIG.version}`);
     hcell.titleFont = _monoFont(12, "bold");
     table.addRow(head);
-
     const addRow = (icon, title, subtitle, value) => {
       const r = new UITableRow();
       r.height = 48;
       r.dismissOnSelect = true;
-      const cell = r.addText(icon + "  " + title, subtitle);
-      cell.titleFont = _monoFont(13, "bold");
-      cell.subtitleFont = _monoFont(10, "regular");
-      cell.subtitleColor = new Color("#8a877e");
+      const cell2 = r.addText(icon + "  " + title, subtitle);
+      cell2.titleFont = _monoFont(13, "bold");
+      cell2.subtitleFont = _monoFont(10, "regular");
+      cell2.subtitleColor = new Color("#8a877e");
       r.onSelect = () => {
         action = value;
       };
@@ -784,51 +672,47 @@ async function runMenu() {
     addRow("⚙", "重新配置凭证", "覆盖 Keychain 里的后端地址和 Admin Token", "setup");
     addRow("↻", "检查更新", "从 GitHub 比对 @version 并更新", "update");
     addRow("✕", "关闭", "什么都不做, 直接退出", null);
-
     const foot = new UITableRow();
     foot.height = 30;
     const fcell = foot.addText("桌面组件后台刷新不会弹出此菜单");
     fcell.titleFont = _monoFont(9, "regular");
     fcell.titleColor = new Color("#8a877e");
     table.addRow(foot);
-
     await table.present();
-
     if (action === "preview") return true;
     if (action === "setup") {
       await runSetup();
       return true;
     }
     if (action === "update") {
-      const updated = await applyUpdateIfAny({ interactive: true });
       const a = new Alert();
-      if (updated) {
-        a.title = "更新完成";
-        a.message = "脚本已更新, 请重新运行。";
-        a.addAction("好");
-        await a.presentAlert();
-        return false;
+      try {
+        const updated = await updater.applyUpdateIfAny({ interactive: true });
+        if (updated) {
+          a.title = "更新完成";
+          a.message = "脚本已更新, 请重新运行。";
+          a.addAction("好");
+          await a.presentAlert();
+          return false;
+        }
+        a.title = "已是最新";
+        a.message = `当前 v${CONFIG.version}`;
+      } catch (error) {
+        a.title = "检查失败";
+        a.message = String(error);
       }
-      a.title = "已是最新";
-      a.message = `当前 v${CONFIG.version}`;
       a.addAction("好");
       await a.presentAlert();
-      // 回到菜单
     }
-    if (action === null) return false; // 关闭
+    if (action === null) return false;
   }
 }
-
-// ==========================================
-// 工具
-// ==========================================
 function money(v) {
   const n = Number(v) || 0;
-  if (n >= 1000) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1e3) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (n >= 1) return n.toFixed(2);
   return n.toFixed(4);
 }
-
 function compact(v) {
   const n = Number(v) || 0;
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
@@ -836,32 +720,23 @@ function compact(v) {
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
   return String(n);
 }
-
 function trunc(s, n) {
   s = String(s ?? "");
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
-
 function fmtTime(ts) {
-  // 兼容 Unix 秒 / 毫秒 / RFC3339 字符串
   let ms = typeof ts === "string" ? Date.parse(ts) : Number(ts);
   if (!Number.isFinite(ms)) return "--:--";
-  if (ms < 1e12) ms *= 1000;
+  if (ms < 1e12) ms *= 1e3;
   const d = new Date(ms);
   return d.getHours() + ":" + ("0" + d.getMinutes()).slice(-2);
 }
-
-// ==========================================
-// 入口
-// ==========================================
-// App 内运行: 未配置 → 配置向导; 已配置 → 弹出菜单 sheet(预览在菜单里)
-let proceedToRender = true;
+var proceedToRender = true;
 if (config.runsInApp && !config.runsWithSiri && !config.runsInActionExtension) {
   const { baseURL: _u, adminToken: _t } = loadAuth();
   if (!_u || !_t) await runSetup();
   else proceedToRender = await runMenu();
 }
-
 if (proceedToRender) {
   let data;
   try {
@@ -869,15 +744,13 @@ if (proceedToRender) {
   } catch (e) {
     data = { configured: true, error: String(e) };
   }
-
   const family = config.widgetFamily || "small";
   const w = new ListWidget();
   w.setPadding(16, 14, 16, 14);
   w.backgroundColor = C.bg;
   w.backgroundImage = dotGrid(family);
-  const now = new Date();
+  const now = /* @__PURE__ */ new Date();
   const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
-
   if (!data.configured) {
     const t1 = w.addText("▪ XLYRA");
     t1.font = MONO_B;
@@ -907,7 +780,6 @@ if (proceedToRender) {
     else if (family === "large") renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
-
   if (config.runsInApp) {
     if (family === "large") await w.presentLarge();
     else if (family === "medium") await w.presentMedium();

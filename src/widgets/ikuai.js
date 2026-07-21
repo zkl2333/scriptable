@@ -1,3 +1,12 @@
+import { createUpdater } from '../lib/updater.js';
+
+const updater = createUpdater({
+  scriptId: __SCRIPT_ID__,
+  version: __SCRIPT_VERSION__,
+  updateURL: __UPDATE_URL__,
+});
+await updater.autoUpdate();
+
 // MD5 实现
 const MD5 = function (string) {
   function RotateLeft(lValue, iShiftBits) {

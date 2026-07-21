@@ -1,6 +1,12 @@
-// Variables used by Scriptable.
-// These must be at the very top of the file. Do not edit.
-// icon-color: yellow; icon-glyph: hourglass-half;
+import { createUpdater } from '../lib/updater.js';
+
+const updater = createUpdater({
+  scriptId: __SCRIPT_ID__,
+  version: __SCRIPT_VERSION__,
+  updateURL: __UPDATE_URL__,
+});
+await updater.autoUpdate();
+
 const w = new ListWidget()
 w.backgroundColor = new Color("#222222")
 const width = 300
