@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.4
+// @version 1.5.5
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.4", // 当前版本(与 @version 保持一致)
+  version: "1.5.5", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -369,19 +369,21 @@ function renderMedium(w, data, time) {
 
   w.addSpacer(); // 弹性空间, 把指标行压到底部
 
-  // 底部: 一排 4 个指标格(终端磁带行)
+  // 底部: 5 个指标格, 弹性间距均分整行(终端磁带)
   const row = w.addStack();
   cell(row, "请求", String(data.today_success_requests ?? 0));
-  row.addSpacer(6);
+  row.addSpacer();
   cell(
     row,
     "成功率",
     data.success_rate + "%",
     data.success_rate >= 99 ? C.green : data.success_rate >= 95 ? C.yellow : C.red
   );
-  row.addSpacer(6);
+  row.addSpacer();
+  cell(row, "失败", String(data.today_failed ?? 0), (data.today_failed ?? 0) > 0 ? C.red : C.green);
+  row.addSpacer();
   cell(row, "站点", data.sites_online + "/" + data.sites_total, data.sites_online === data.sites_total ? C.green : C.yellow);
-  row.addSpacer(6);
+  row.addSpacer();
   cell(row, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
 }
 
@@ -390,45 +392,60 @@ function renderMedium(w, data, time) {
 // ==========================================
 function renderLarge(w, data, time) {
   brandRow(w, time);
-  w.addSpacer(6);
-  const chips = w.addStack();
-  chip(chips, { label: "站点", value: data.sites_online + "/" + data.sites_total, dot: data.sites_online === data.sites_total ? C.green : C.yellow });
-  chips.addSpacer(6);
-  chip(chips, { label: "KEY", value: data.keys_active + "/" + data.keys_total, dot: data.keys_active === data.keys_total ? C.green : C.yellow });
-  chips.addSpacer(6);
-  chip(chips, { label: "RPM", value: String(data.rpm_60s ?? 0), dot: C.amber });
-  w.addSpacer(10);
+  w.addSpacer(8);
 
   const lab = w.addText("TODAY // 今日费用");
   lab.font = MONO_SM;
   lab.textColor = C.dim;
-  w.addSpacer(5);
-  addLed(w, money(data.today_cost), { dot: 4.2, gap: 1.8 });
-  w.addSpacer(5);
-  const sub = w.addText(`TOTAL $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOKENS`);
-  sub.font = MONO_SM;
-  sub.textColor = C.dim;
+  w.addSpacer(4);
+
+  // LED 大数 + 右侧汇总列(填满宽幅空区)
+  const ledRow = w.addStack();
+  ledRow.centerAlignContent();
+  addLed(ledRow, money(data.today_cost), { dot: 4.2, gap: 1.8 });
+  ledRow.addSpacer(14);
+  const agg = ledRow.addStack();
+  agg.layoutVertically();
+  const a1 = agg.addText(`TOTAL $${money(data.total_cost)}`);
+  a1.font = MONO_B;
+  a1.textColor = C.fg;
+  a1.lineLimit = 1;
+  a1.minimumScaleFactor = 0.7;
+  agg.addSpacer(3);
+  const a2 = agg.addText(`今日 ${compact(data.today_tokens)} TOKENS`);
+  a2.font = MONO_SM;
+  a2.textColor = C.dim;
+  a2.lineLimit = 1;
+  agg.addSpacer(3);
+  const a3 = agg.addText(`RPM ${data.rpm_60s ?? 0} · TPM ${compact(data.tpm_60s ?? 0)}`);
+  a3.font = MONO_SM;
+  a3.textColor = C.dim;
+  a3.lineLimit = 1;
   w.addSpacer(10);
 
+  // 指标磁带: 5 格弹性均分整行
   const cellsRow = w.addStack();
   cell(cellsRow, "请求", String(data.today_success_requests ?? 0));
-  cellsRow.addSpacer(6);
+  cellsRow.addSpacer();
   cell(
     cellsRow,
     "成功率",
     data.success_rate + "%",
     data.success_rate >= 99 ? C.green : data.success_rate >= 95 ? C.yellow : C.red
   );
-  cellsRow.addSpacer(6);
-  cell(cellsRow, "RPM", String(data.rpm_60s ?? 0));
-  cellsRow.addSpacer(6);
-  cell(cellsRow, "TPM", compact(data.tpm_60s ?? 0));
+  cellsRow.addSpacer();
+  cell(cellsRow, "失败", String(data.today_failed ?? 0), (data.today_failed ?? 0) > 0 ? C.red : C.green);
+  cellsRow.addSpacer();
+  cell(cellsRow, "站点", data.sites_online + "/" + data.sites_total, data.sites_online === data.sites_total ? C.green : C.yellow);
+  cellsRow.addSpacer();
+  cell(cellsRow, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
   w.addSpacer(10);
 
-  // 站点健康
+  // 站点健康(无 OAuth 区块时高度预算充裕, 全量展示; 有 OAuth 时收紧到 4 行)
   sectionTitle(w, "SITES // 站点健康");
-  w.addSpacer(5);
-  for (const s of data.sites.slice(0, 4)) {
+  w.addSpacer(4);
+  const maxSites = data.oauth ? 4 : 7;
+  for (const s of data.sites.slice(0, maxSites)) {
     const row = w.addStack();
     row.centerAlignContent();
     const d = row.addText(s.online ? "●" : s.enabled === false ? "◌" : "○");
@@ -447,7 +464,12 @@ function renderLarge(w, data, time) {
     const cost = row.addText("$" + money(s.today_cost));
     cost.font = MONO_B;
     cost.textColor = C.amber;
-    w.addSpacer(4);
+    w.addSpacer(3);
+  }
+  if (data.sites.length > maxSites) {
+    const more = w.addText(`… +${data.sites.length - maxSites} 个站点`);
+    more.font = MONO_SM;
+    more.textColor = C.dim;
   }
 
   // 模型 TOP3
@@ -627,6 +649,7 @@ async function loadData() {
     total_cost: kpis.total_cost ?? 0,
     today_tokens: kpis.today_tokens ?? 0,
     today_success_requests: okReqs,
+    today_failed: failed,
     success_rate: totalReq > 0 ? +((okReqs / totalReq) * 100).toFixed(1) : 100,
     sites_total: sites.length,
     sites_online: sitesOnline,
