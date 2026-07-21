@@ -832,9 +832,8 @@ if (proceedToRender) {
   const family = config.widgetFamily || "small";
   const w = new ListWidget();
   w.setPadding(16, 14, 16, 14);
-  // 点击组件 → 拉起脚本弹菜单(官方 API: URLScheme.forRunningScript()
-  // 生成当前脚本的运行 URL, 与脚本文件名无关, 改名不失效)
-  w.widgetURL = URLScheme.forRunningScript() + "?action=menu";
+  // 点击组件时重新运行当前脚本，App 内入口会展示操作菜单
+  w.url = URLScheme.forRunningScript();
   w.backgroundColor = C.bg;
   w.backgroundImage = dotGrid(family);
   const now = new Date();

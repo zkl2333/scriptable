@@ -24,7 +24,7 @@ const widgets = [
     iconGlyph: 'hourglass-half',
   },
   { name: 'work-helper', version: '2.0.1', iconColor: 'teal', iconGlyph: 'magic' },
-  { name: 'xlyra', version: '1.6.2', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
+  { name: 'xlyra', version: '1.6.3', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>
