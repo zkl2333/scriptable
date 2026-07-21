@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.0.5
+// @version 1.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -188,7 +188,7 @@ var runWidgetMenu = async ({
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.0.5",
+  version: "1.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -550,7 +550,9 @@ function drawCircularProgress({
   progressColor,
   textLarge,
   textSmall,
-  textColor
+  textColor,
+  fontLarge = 36,
+  fontSmall = 22
 }) {
   let ctx = new DrawContext();
   ctx.size = new Size(200, 200);
@@ -571,134 +573,339 @@ function drawCircularProgress({
     ctx.fillEllipse(rect_r);
   }
   ctx.setTextAlignedCenter();
-  ctx.setFont(Font.boldSystemFont(36));
+  ctx.setFont(Font.boldSystemFont(fontLarge));
   ctx.setTextColor(textColor);
   ctx.drawTextInRect(
     textLarge,
-    new Rect(center.x - 100, center.y - 36, 200, 40)
+    new Rect(center.x - 100, center.y - fontLarge, 200, fontLarge + 4)
   );
-  ctx.setFont(Font.systemFont(22));
+  ctx.setFont(Font.systemFont(fontSmall));
   ctx.setTextColor(textColor);
   ctx.drawTextInRect(
     textSmall,
-    new Rect(center.x - 100, center.y + 15, 200, 30)
+    new Rect(center.x - 100, center.y + fontSmall * 0.7, 200, fontSmall + 8)
   );
   return ctx.getImage();
 }
+var COLORS = {
+  bgTop: "#1B212B",
+  bgBottom: "#12161D",
+  text: "#F2F5F9",
+  muted: "#8B96A8",
+  down: "#4DA3FF",
+  up: "#3ED598",
+  cpu: "#FFB444",
+  mem: "#FF6B5E",
+  ringTrack: "#2C3442",
+  divider: "#2A303C"
+};
+var LOGO_URL = "https://cdn.jsdelivr.net/gh/zkl2333/scriptable/image/ikuai64.ico";
+var splitRate = (bytesPerSec) => {
+  const text = formatBytes(Math.max(0, Number(bytesPerSec) || 0));
+  const [value, unit] = text.split(" ");
+  return { value, unit: unit === "Bytes" ? "B/s" : `${unit}/s` };
+};
+var collectMetrics = (sysstat) => {
+  const stream = sysstat.stream || {};
+  const toNumber = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+  const rawUptime = stream.uptime ?? sysstat.uptime;
+  let uptime = "—";
+  if (rawUptime !== void 0 && rawUptime !== null && rawUptime !== "") {
+    uptime = typeof rawUptime === "number" ? formatTime(rawUptime) : String(rawUptime);
+  }
+  return {
+    cpu: Math.round(Number(avg(sysstat.cpu)) || 0),
+    mem: parseInt(String(sysstat.memory?.used || "0%").replace("%", ""), 10) || 0,
+    rateUp: toNumber(stream.upload),
+    rateDown: toNumber(stream.download),
+    totalUp: toNumber(stream.total_up),
+    totalDown: toNumber(stream.total_down),
+    connections: stream.connect_num != null ? toNumber(stream.connect_num) : null,
+    uptime
+  };
+};
+var drawBarImage = (progress, colorHex) => {
+  const ctx = new DrawContext();
+  ctx.size = new Size(120, 8);
+  ctx.opaque = false;
+  ctx.respectScreenScale = true;
+  const track = new Path();
+  track.addRoundedRect(new Rect(0, 0, 120, 8), 4, 4);
+  ctx.addPath(track);
+  ctx.setFillColor(new Color(COLORS.ringTrack));
+  ctx.fillPath();
+  const width = Math.max(8, Math.round(120 * Math.min(1, Math.max(0, progress))));
+  const fill = new Path();
+  fill.addRoundedRect(new Rect(0, 0, width, 8), 4, 4);
+  ctx.addPath(fill);
+  ctx.setFillColor(new Color(colorHex));
+  ctx.fillPath();
+  return ctx.getImage();
+};
+var addHDivider = (stack) => {
+  const line = stack.addStack();
+  line.size = new Size(0, 1);
+  line.backgroundColor = new Color(COLORS.divider);
+};
+var addVDivider = (stack) => {
+  const line = stack.addStack();
+  line.size = new Size(1, 0);
+  line.backgroundColor = new Color(COLORS.divider);
+};
+var addArrowIcon = (row, symbolName, colorHex, size = new Size(9, 11)) => {
+  const symbol = SFSymbol.named(symbolName);
+  if (symbol) {
+    const icon = row.addImage(symbol.image);
+    icon.imageSize = size;
+    icon.imageColor = new Color(colorHex);
+  } else {
+    const arrow = row.addText(symbolName === "arrow.up" ? "↑" : "↓");
+    arrow.font = Font.systemFont(9);
+    arrow.textColor = new Color(colorHex);
+  }
+};
+var buildHeader = (widget, logo, uptimeText, { compact = false } = {}) => {
+  const row = widget.addStack();
+  row.centerAlignContent();
+  const logoImg = row.addImage(logo);
+  const logoSize = compact ? 13 : 16;
+  logoImg.imageSize = new Size(logoSize, logoSize);
+  row.addSpacer(5);
+  const title = row.addText("爱快");
+  title.font = Font.semiboldSystemFont(compact ? 12 : 13);
+  title.textColor = new Color(COLORS.text);
+  row.addSpacer();
+  const dot = row.addText("●");
+  dot.font = Font.systemFont(7);
+  dot.textColor = new Color(COLORS.up);
+  row.addSpacer(4);
+  const uptime = row.addText(`在线 ${uptimeText}`);
+  uptime.font = Font.mediumSystemFont(9);
+  uptime.textColor = new Color(COLORS.muted);
+};
+var addRateCell = (parent, label, symbolName, rateBytes, colorHex) => {
+  const cell = parent.addStack();
+  cell.layoutVertically();
+  const head = cell.addStack();
+  head.centerAlignContent();
+  addArrowIcon(head, symbolName, colorHex);
+  head.addSpacer(4);
+  const labelText = head.addText(label);
+  labelText.font = Font.mediumSystemFont(9);
+  labelText.textColor = new Color(COLORS.muted);
+  cell.addSpacer(3);
+  const { value, unit } = splitRate(rateBytes);
+  const valueRow = cell.addStack();
+  valueRow.bottomAlignContent();
+  const valueText = valueRow.addText(value);
+  valueText.font = Font.semiboldSystemFont(15);
+  valueText.textColor = new Color(COLORS.text);
+  valueRow.addSpacer(3);
+  const unitText = valueRow.addText(unit);
+  unitText.font = Font.systemFont(9);
+  unitText.textColor = new Color(COLORS.muted);
+};
+var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
+  const cell = parent.addStack();
+  cell.layoutVertically();
+  const labelText = cell.addText(label);
+  labelText.font = Font.mediumSystemFont(9);
+  labelText.textColor = new Color(COLORS.muted);
+  cell.addSpacer(3);
+  const valueRow = cell.addStack();
+  valueRow.bottomAlignContent();
+  const valueText = valueRow.addText(String(percent));
+  valueText.font = Font.semiboldSystemFont(15);
+  valueText.textColor = new Color(COLORS.text);
+  valueRow.addSpacer(2);
+  const unitText = valueRow.addText("%");
+  unitText.font = Font.systemFont(9);
+  unitText.textColor = new Color(COLORS.muted);
+  cell.addSpacer(6);
+  const bar = cell.addImage(drawBarImage(percent / 100, colorHex));
+  bar.imageSize = new Size(barWidth, 4);
+};
+var addInfoCell = (parent, label, value) => {
+  const cell = parent.addStack();
+  cell.layoutVertically();
+  const labelText = cell.addText(label);
+  labelText.font = Font.mediumSystemFont(9);
+  labelText.textColor = new Color(COLORS.muted);
+  cell.addSpacer(3);
+  const valueText = cell.addText(value);
+  valueText.font = Font.semiboldSystemFont(12);
+  valueText.textColor = new Color(COLORS.text);
+};
+var addTotalsLine = (parent, metrics) => {
+  const row = parent.addStack();
+  row.centerAlignContent();
+  const label = row.addText("累计");
+  label.font = Font.mediumSystemFont(9);
+  label.textColor = new Color(COLORS.muted);
+  row.addSpacer(6);
+  addArrowIcon(row, "arrow.down", COLORS.down, new Size(8, 10));
+  row.addSpacer(3);
+  const down = row.addText(formatBytes(metrics.totalDown));
+  down.font = Font.mediumSystemFont(9);
+  down.textColor = new Color(COLORS.text);
+  row.addSpacer(10);
+  addArrowIcon(row, "arrow.up", COLORS.up, new Size(8, 10));
+  row.addSpacer(3);
+  const up = row.addText(formatBytes(metrics.totalUp));
+  up.font = Font.mediumSystemFont(9);
+  up.textColor = new Color(COLORS.text);
+};
+var addRing = (parent, image, size) => {
+  const img = parent.addImage(image);
+  img.imageSize = new Size(size, size);
+};
+var buildSmallLayout = (widget, metrics, logo) => {
+  buildHeader(widget, logo, metrics.uptime, { compact: true });
+  widget.addSpacer(12);
+  const rates = widget.addStack();
+  addRateCell(rates, "下行", "arrow.down", metrics.rateDown, COLORS.down);
+  rates.addSpacer();
+  addRateCell(rates, "上行", "arrow.up", metrics.rateUp, COLORS.up);
+  widget.addSpacer(12);
+  const gauges = widget.addStack();
+  addGaugeCell(gauges, "CPU", metrics.cpu, COLORS.cpu);
+  gauges.addSpacer();
+  addGaugeCell(gauges, "内存", metrics.mem, COLORS.mem);
+  widget.addSpacer(12);
+  addTotalsLine(widget, metrics);
+};
+var buildMediumLayout = (widget, metrics, logo, rings) => {
+  buildHeader(widget, logo, metrics.uptime);
+  widget.addSpacer(10);
+  const main = widget.addStack();
+  main.centerAlignContent();
+  const gaugeStack = main.addStack();
+  gaugeStack.centerAlignContent();
+  addRing(gaugeStack, rings.cpu, rings.size);
+  gaugeStack.addSpacer(8);
+  addRing(gaugeStack, rings.mem, rings.size);
+  main.addSpacer(16);
+  addVDivider(main);
+  main.addSpacer(16);
+  const right = main.addStack();
+  right.layoutVertically();
+  const rateRow = right.addStack();
+  addRateCell(rateRow, "下行", "arrow.down", metrics.rateDown, COLORS.down);
+  rateRow.addSpacer();
+  addRateCell(rateRow, "上行", "arrow.up", metrics.rateUp, COLORS.up);
+  right.addSpacer(10);
+  addHDivider(right);
+  right.addSpacer(10);
+  addTotalsLine(right, metrics);
+};
+var buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
+  buildHeader(widget, logo, metrics.uptime);
+  widget.addSpacer(18);
+  const main = widget.addStack();
+  main.centerAlignContent();
+  const gaugeStack = main.addStack();
+  gaugeStack.centerAlignContent();
+  addRing(gaugeStack, rings.cpu, rings.size);
+  gaugeStack.addSpacer(14);
+  addRing(gaugeStack, rings.mem, rings.size);
+  main.addSpacer(18);
+  addVDivider(main);
+  main.addSpacer(18);
+  const right = main.addStack();
+  right.layoutVertically();
+  const rateRow = right.addStack();
+  addRateCell(rateRow, "实时下行", "arrow.down", metrics.rateDown, COLORS.down);
+  rateRow.addSpacer();
+  addRateCell(rateRow, "实时上行", "arrow.up", metrics.rateUp, COLORS.up);
+  right.addSpacer(14);
+  addHDivider(right);
+  right.addSpacer(14);
+  const totalsRow = right.addStack();
+  addInfoCell(totalsRow, "累计下行", formatBytes(metrics.totalDown));
+  totalsRow.addSpacer();
+  addInfoCell(totalsRow, "累计上行", formatBytes(metrics.totalUp));
+  widget.addSpacer(18);
+  addHDivider(widget);
+  widget.addSpacer(14);
+  const strip = widget.addStack();
+  addInfoCell(strip, "在线时长", metrics.uptime);
+  strip.addSpacer();
+  if (metrics.connections != null) {
+    addInfoCell(strip, "连接数", String(metrics.connections));
+    strip.addSpacer();
+  }
+  addInfoCell(strip, "更新时刻", updatedAt);
+};
 async function createWidget(info, family = config.widgetFamily || "medium") {
   const widget = new ListWidget();
-  widget.backgroundColor = new Color("#333333");
-  widget.useDefaultPadding();
+  const gradient = new LinearGradient();
+  gradient.colors = [new Color(COLORS.bgTop), new Color(COLORS.bgBottom)];
+  gradient.locations = [0, 1];
+  gradient.startPoint = new Point(0, 0);
+  gradient.endPoint = new Point(0, 1);
+  widget.backgroundGradient = gradient;
+  if (family === "small") {
+    widget.setPadding(13, 14, 11, 14);
+  } else if (family === "large") {
+    widget.setPadding(16, 18, 14, 18);
+  } else {
+    widget.setPadding(13, 16, 12, 16);
+  }
   try {
     const myRouter = new iKuai(info.host, info.port, false);
     await myRouter.login(info.username, info.password);
-    const sysstat = await myRouter.exec("homepage", "show", {
+    const response = await myRouter.exec("homepage", "show", {
       TYPE: "sysstat"
     });
-    const stats = getRouterData(sysstat)?.sysstat;
+    const stats = getRouterData(response)?.sysstat;
     if (!stats) {
-      console.log(JSON.stringify(sysstat));
-      throw new Error(getRouterError(sysstat));
+      console.log(JSON.stringify(response));
+      throw new Error(getRouterError(response));
     }
-    const stream = stats.stream || {};
-    const cpu = avg(stats.cpu);
-    const memory = parseInt(String(stats.memory?.used || "0%").replace("%", "")) || 0;
+    const metrics = collectMetrics(stats);
+    const logo = await new Request(LOGO_URL).loadImage();
+    let rings = null;
+    if (family !== "small") {
+      const ringSize = family === "large" ? 84 : 62;
+      const ringFonts = family === "large" ? { fontLarge: 38, fontSmall: 24 } : { fontLarge: 42, fontSmall: 28 };
+      const drawRing = (percent, label, colorHex) => drawCircularProgress({
+        center: new Point(100, 100),
+        radius: 82,
+        lineWidth: 15,
+        progress: percent / 100,
+        backgroundColor: new Color(COLORS.ringTrack),
+        progressColor: new Color(colorHex),
+        textLarge: percent + "%",
+        textSmall: label,
+        textColor: new Color(COLORS.text),
+        ...ringFonts
+      });
+      rings = {
+        size: ringSize,
+        cpu: drawRing(metrics.cpu, "CPU", COLORS.cpu),
+        mem: drawRing(metrics.mem, "内存", COLORS.mem)
+      };
+    }
+    const now = /* @__PURE__ */ new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const updatedAt = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     if (family === "small") {
-      const title = widget.addText("爱快路由器");
-      title.font = Font.boldSystemFont(16);
-      title.textColor = new Color("#FCFCFC");
-      widget.addSpacer(6);
-      const usage = widget.addText(`CPU ${cpu}%  ·  内存 ${memory}%`);
-      usage.font = Font.systemFont(13);
-      usage.textColor = new Color("#FFB444");
-      widget.addSpacer(5);
-      const rate = widget.addText(
-        `↑ ${formatBytes(stream.upload)}/s
-↓ ${formatBytes(stream.download)}/s`
-      );
-      rate.font = Font.mediumSystemFont(14);
-      rate.textColor = new Color("#FCFCFC");
-      widget.addSpacer();
-      const footer = widget.addText(`在线 ${formatTime(stream.uptime)}`);
-      footer.font = Font.systemFont(11);
-      footer.textColor = new Color("#A8B0C0");
-      return attachMenuURL(widget);
+      buildSmallLayout(widget, metrics, logo);
+    } else if (family === "large") {
+      buildLargeLayout(widget, metrics, logo, rings, updatedAt);
+    } else {
+      buildMediumLayout(widget, metrics, logo, rings);
     }
-    const stack = widget.addStack();
-    stack.centerAlignContent();
-    const subStack = stack.addStack();
-    subStack.layoutVertically();
-    subStack.topAlignContent();
-    const logo = await new Request(
-      "https://cdn.jsdelivr.net/gh/zkl2333/scriptable/image/ikuai64.ico"
-    ).loadImage();
-    const logoStack = subStack.addStack();
-    const logoImg = logoStack.addImage(logo);
-    logoImg.imageSize = new Size(20, 20);
-    logoStack.addSpacer(5);
-    logoStack.addText("爱快").textColor = new Color("#FCFCFC");
-    subStack.addSpacer(10);
-    const uploadText = subStack.addText(
-      `累计上传  ${formatBytes(stream.total_up)}`
-    );
-    uploadText.textColor = new Color("#FCFCFC");
-    uploadText.centerAlignText();
-    subStack.addSpacer(4);
-    const downloadText = subStack.addText(
-      `累计下载  ${formatBytes(stream.total_down)}`
-    );
-    downloadText.textColor = new Color("#FCFCFC");
-    downloadText.centerAlignText();
-    subStack.addSpacer(8);
-    const rateText = subStack.addText(
-      `↑ ${formatBytes(stream.upload)}/s
-↓ ${formatBytes(stream.download)}/s`
-    );
-    rateText.font = Font.mediumSystemFont(12);
-    rateText.textColor = new Color("#A8B0C0");
-    rateText.lineLimit = 2;
-    subStack.addSpacer(6);
-    const uptimeText = subStack.addText(`在线 ${formatTime(stream.uptime)}`);
-    uptimeText.font = Font.systemFont(10);
-    uptimeText.textColor = new Color("#A8B0C0");
-    uptimeText.lineLimit = 1;
-    stack.addSpacer(10);
-    const ringSize = family === "large" ? 118 : 88;
-    const cpuImg = drawCircularProgress({
-      center: new Point(100, 100),
-      radius: 80,
-      lineWidth: 15,
-      progress: cpu / 100,
-      backgroundColor: new Color("#333A52"),
-      progressColor: new Color("#FFB444"),
-      textLarge: cpu + "%",
-      textSmall: "CPU",
-      textColor: new Color("#FCFCFC")
-    });
-    const memoryImg = drawCircularProgress({
-      center: new Point(100, 100),
-      radius: 80,
-      lineWidth: 15,
-      progress: memory / 100,
-      backgroundColor: new Color("#333A52"),
-      progressColor: new Color("#F15A4B"),
-      textLarge: memory + "%",
-      textSmall: "内存",
-      textColor: new Color("#FCFCFC")
-    });
-    const cpuImage = stack.addImage(cpuImg);
-    cpuImage.imageSize = new Size(ringSize, ringSize);
-    stack.addSpacer(8);
-    const memoryImage = stack.addImage(memoryImg);
-    memoryImage.imageSize = new Size(ringSize, ringSize);
   } catch (error) {
-    const title = widget.addText("爱快数据获取失败");
-    title.font = Font.boldSystemFont(14);
-    title.textColor = new Color("#F15A4B");
-    widget.addSpacer(6);
+    const failure = widget.addText("获取数据失败");
+    failure.font = Font.mediumSystemFont(12);
+    failure.textColor = new Color(COLORS.mem);
     const message = widget.addText(error.message || "未知错误");
-    message.font = Font.systemFont(11);
-    message.textColor = new Color("#FCFCFC");
+    message.font = Font.systemFont(10);
+    message.textColor = new Color(COLORS.muted);
     message.minimumScaleFactor = 0.65;
     console.log(error);
   }
@@ -708,7 +915,7 @@ if (shouldShowWidgetMenu()) {
   for (; ; ) {
     const action = await runWidgetMenu({
       title: "爱快路由器",
-      version: "1.0.5",
+      version: "1.1.0",
       updater,
       actions: [
         {
