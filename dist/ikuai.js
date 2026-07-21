@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.1.0
+// @version 1.2.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -188,7 +188,7 @@ var runWidgetMenu = async ({
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.1.0",
+  version: "1.2.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -616,15 +616,34 @@ var collectMetrics = (sysstat) => {
   if (rawUptime !== void 0 && rawUptime !== null && rawUptime !== "") {
     uptime = typeof rawUptime === "number" ? formatTime(rawUptime) : String(rawUptime);
   }
+  const rawCpuTemp = Array.isArray(sysstat.cputemp) && sysstat.cputemp.length > 0 ? sysstat.cputemp[0] : null;
+  const cpuTemp = rawCpuTemp == null ? "—" : /[°℃]/.test(String(rawCpuTemp)) ? String(rawCpuTemp) : `${rawCpuTemp}°C`;
   return {
     cpu: Math.round(Number(avg(sysstat.cpu)) || 0),
     mem: parseInt(String(sysstat.memory?.used || "0%").replace("%", ""), 10) || 0,
+    cpuTemp,
+    onlineUsers: sysstat.online_user?.count == null ? null : toNumber(sysstat.online_user.count),
     rateUp: toNumber(stream.upload),
     rateDown: toNumber(stream.download),
     totalUp: toNumber(stream.total_up),
     totalDown: toNumber(stream.total_down),
     connections: stream.connect_num != null ? toNumber(stream.connect_num) : null,
     uptime
+  };
+};
+var collectWanMetrics = (response) => {
+  const data = getRouterData(response);
+  const snapshots = Array.isArray(data?.snapshoot_wan) ? data.snapshoot_wan : [];
+  const wan = snapshots.find((item) => Number(item.default_route) === 1) || snapshots.find((item) => [3, 4].includes(Number(item.internet))) || snapshots[0];
+  if (!wan) {
+    return { wanIp: "—", wanInterface: "—", wanUptime: "—" };
+  }
+  const updatedAt = Number(wan.updatetime);
+  const uptimeSeconds = updatedAt > 1e9 ? Math.max(0, Math.floor(Date.now() / 1e3 - updatedAt)) : Math.max(0, updatedAt || 0);
+  return {
+    wanIp: String(wan.ip_addr || "—"),
+    wanInterface: String(wan.interface || "—"),
+    wanUptime: uptimeSeconds > 0 ? formatTime(uptimeSeconds) : "—"
   };
 };
 var drawBarImage = (progress, colorHex) => {
@@ -667,7 +686,7 @@ var addArrowIcon = (row, symbolName, colorHex, size = new Size(9, 11)) => {
     arrow.textColor = new Color(colorHex);
   }
 };
-var buildHeader = (widget, logo, uptimeText, { compact = false } = {}) => {
+var buildHeader = (widget, logo, uptimeText, { compact = false, updatedAt = null } = {}) => {
   const row = widget.addStack();
   row.centerAlignContent();
   const logoImg = row.addImage(logo);
@@ -682,11 +701,14 @@ var buildHeader = (widget, logo, uptimeText, { compact = false } = {}) => {
   dot.font = Font.systemFont(7);
   dot.textColor = new Color(COLORS.up);
   row.addSpacer(4);
-  const uptime = row.addText(`在线 ${uptimeText}`);
+  const statusText = updatedAt ? `在线 ${uptimeText}  ·  ${updatedAt}` : `在线 ${uptimeText}`;
+  const uptime = row.addText(statusText);
   uptime.font = Font.mediumSystemFont(9);
   uptime.textColor = new Color(COLORS.muted);
+  uptime.lineLimit = 1;
+  uptime.minimumScaleFactor = 0.75;
 };
-var addRateCell = (parent, label, symbolName, rateBytes, colorHex) => {
+var addRateCell = (parent, label, symbolName, rateBytes, colorHex, { valueFont = 15, detail = null } = {}) => {
   const cell = parent.addStack();
   cell.layoutVertically();
   const head = cell.addStack();
@@ -701,12 +723,21 @@ var addRateCell = (parent, label, symbolName, rateBytes, colorHex) => {
   const valueRow = cell.addStack();
   valueRow.bottomAlignContent();
   const valueText = valueRow.addText(value);
-  valueText.font = Font.semiboldSystemFont(15);
+  valueText.font = Font.semiboldSystemFont(valueFont);
   valueText.textColor = new Color(COLORS.text);
+  valueText.minimumScaleFactor = 0.65;
   valueRow.addSpacer(3);
   const unitText = valueRow.addText(unit);
   unitText.font = Font.systemFont(9);
   unitText.textColor = new Color(COLORS.muted);
+  if (detail) {
+    cell.addSpacer(4);
+    const detailText = cell.addText(detail);
+    detailText.font = Font.mediumSystemFont(8);
+    detailText.textColor = new Color(COLORS.muted);
+    detailText.lineLimit = 1;
+    detailText.minimumScaleFactor = 0.7;
+  }
 };
 var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
   const cell = parent.addStack();
@@ -728,6 +759,20 @@ var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
   const bar = cell.addImage(drawBarImage(percent / 100, colorHex));
   bar.imageSize = new Size(barWidth, 4);
 };
+var addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
+  const row = parent.addStack();
+  row.centerAlignContent();
+  const labelText = row.addText(label);
+  labelText.font = Font.mediumSystemFont(9);
+  labelText.textColor = new Color(COLORS.muted);
+  row.addSpacer();
+  const valueText = row.addText(`${percent}%`);
+  valueText.font = Font.semiboldSystemFont(11);
+  valueText.textColor = new Color(COLORS.text);
+  parent.addSpacer(4);
+  const bar = parent.addImage(drawBarImage(percent / 100, colorHex));
+  bar.imageSize = new Size(barWidth, 4);
+};
 var addInfoCell = (parent, label, value) => {
   const cell = parent.addStack();
   cell.layoutVertically();
@@ -738,6 +783,8 @@ var addInfoCell = (parent, label, value) => {
   const valueText = cell.addText(value);
   valueText.font = Font.semiboldSystemFont(12);
   valueText.textColor = new Color(COLORS.text);
+  valueText.lineLimit = 1;
+  valueText.minimumScaleFactor = 0.65;
 };
 var addTotalsLine = (parent, metrics) => {
   const row = parent.addStack();
@@ -777,33 +824,64 @@ var buildSmallLayout = (widget, metrics, logo) => {
   widget.addSpacer(12);
   addTotalsLine(widget, metrics);
 };
-var buildMediumLayout = (widget, metrics, logo, rings) => {
-  buildHeader(widget, logo, metrics.uptime);
+var buildMediumLayout = (widget, metrics, logo, updatedAt) => {
+  buildHeader(widget, logo, metrics.uptime, { updatedAt });
   widget.addSpacer(10);
   const main = widget.addStack();
   main.centerAlignContent();
-  const gaugeStack = main.addStack();
-  gaugeStack.centerAlignContent();
-  addRing(gaugeStack, rings.cpu, rings.size);
-  gaugeStack.addSpacer(8);
-  addRing(gaugeStack, rings.mem, rings.size);
-  main.addSpacer(16);
+  const rates = main.addStack();
+  rates.size = new Size(174, 0);
+  addRateCell(rates, "实时下行", "arrow.down", metrics.rateDown, COLORS.down, {
+    valueFont: 19
+  });
+  rates.addSpacer();
+  addRateCell(rates, "实时上行", "arrow.up", metrics.rateUp, COLORS.up, {
+    valueFont: 19
+  });
+  main.addSpacer(13);
   addVDivider(main);
-  main.addSpacer(16);
-  const right = main.addStack();
-  right.layoutVertically();
-  const rateRow = right.addStack();
-  addRateCell(rateRow, "下行", "arrow.down", metrics.rateDown, COLORS.down);
-  rateRow.addSpacer();
-  addRateCell(rateRow, "上行", "arrow.up", metrics.rateUp, COLORS.up);
-  right.addSpacer(10);
-  addHDivider(right);
-  right.addSpacer(10);
-  addTotalsLine(right, metrics);
+  main.addSpacer(13);
+  const gauges = main.addStack();
+  gauges.layoutVertically();
+  addGaugeRow(gauges, "CPU", metrics.cpu, COLORS.cpu);
+  gauges.addSpacer(8);
+  addGaugeRow(gauges, "内存", metrics.mem, COLORS.mem);
+  widget.addSpacer(9);
+  addHDivider(widget);
+  widget.addSpacer(7);
+  const summary = widget.addStack();
+  addInfoCell(summary, "累计下行", formatBytes(metrics.totalDown));
+  summary.addSpacer();
+  addInfoCell(summary, "累计上行", formatBytes(metrics.totalUp));
+  summary.addSpacer();
+  addInfoCell(
+    summary,
+    "在线终端",
+    metrics.onlineUsers == null ? "—" : String(metrics.onlineUsers)
+  );
+  summary.addSpacer();
+  addInfoCell(
+    summary,
+    "当前连接",
+    metrics.connections == null ? "—" : String(metrics.connections)
+  );
 };
 var buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
-  buildHeader(widget, logo, metrics.uptime);
-  widget.addSpacer(18);
+  buildHeader(widget, logo, metrics.uptime, { updatedAt });
+  widget.addSpacer(16);
+  const rates = widget.addStack();
+  addRateCell(rates, "实时下行", "arrow.down", metrics.rateDown, COLORS.down, {
+    valueFont: 24,
+    detail: `累计 ${formatBytes(metrics.totalDown)}`
+  });
+  rates.addSpacer();
+  addRateCell(rates, "实时上行", "arrow.up", metrics.rateUp, COLORS.up, {
+    valueFont: 24,
+    detail: `累计 ${formatBytes(metrics.totalUp)}`
+  });
+  widget.addSpacer(16);
+  addHDivider(widget);
+  widget.addSpacer(15);
   const main = widget.addStack();
   main.centerAlignContent();
   const gaugeStack = main.addStack();
@@ -811,33 +889,35 @@ var buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
   addRing(gaugeStack, rings.cpu, rings.size);
   gaugeStack.addSpacer(14);
   addRing(gaugeStack, rings.mem, rings.size);
-  main.addSpacer(18);
+  main.addSpacer(20);
   addVDivider(main);
-  main.addSpacer(18);
-  const right = main.addStack();
-  right.layoutVertically();
-  const rateRow = right.addStack();
-  addRateCell(rateRow, "实时下行", "arrow.down", metrics.rateDown, COLORS.down);
-  rateRow.addSpacer();
-  addRateCell(rateRow, "实时上行", "arrow.up", metrics.rateUp, COLORS.up);
-  right.addSpacer(14);
-  addHDivider(right);
-  right.addSpacer(14);
-  const totalsRow = right.addStack();
-  addInfoCell(totalsRow, "累计下行", formatBytes(metrics.totalDown));
-  totalsRow.addSpacer();
-  addInfoCell(totalsRow, "累计上行", formatBytes(metrics.totalUp));
-  widget.addSpacer(18);
+  main.addSpacer(20);
+  const detail = main.addStack();
+  detail.layoutVertically();
+  addInfoCell(detail, "WAN 地址", metrics.wanIp);
+  detail.addSpacer(12);
+  addInfoCell(
+    detail,
+    "在线终端",
+    metrics.onlineUsers == null ? "—" : String(metrics.onlineUsers)
+  );
+  detail.addSpacer(12);
+  addInfoCell(
+    detail,
+    "当前连接",
+    metrics.connections == null ? "—" : String(metrics.connections)
+  );
+  widget.addSpacer(16);
   addHDivider(widget);
-  widget.addSpacer(14);
+  widget.addSpacer(12);
   const strip = widget.addStack();
-  addInfoCell(strip, "在线时长", metrics.uptime);
+  addInfoCell(strip, "WAN 在线", metrics.wanUptime);
   strip.addSpacer();
-  if (metrics.connections != null) {
-    addInfoCell(strip, "连接数", String(metrics.connections));
-    strip.addSpacer();
-  }
-  addInfoCell(strip, "更新时刻", updatedAt);
+  addInfoCell(strip, "CPU 温度", metrics.cpuTemp);
+  strip.addSpacer();
+  addInfoCell(strip, "实时合计", `${formatBytes(metrics.rateDown + metrics.rateUp)}/s`);
+  strip.addSpacer();
+  addInfoCell(strip, "更新时间", updatedAt);
 };
 async function createWidget(info, family = config.widgetFamily || "medium") {
   const widget = new ListWidget();
@@ -857,20 +937,27 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
   try {
     const myRouter = new iKuai(info.host, info.port, false);
     await myRouter.login(info.username, info.password);
-    const response = await myRouter.exec("homepage", "show", {
-      TYPE: "sysstat"
-    });
+    const [response, wanResponse] = await Promise.all([
+      myRouter.exec("homepage", "show", { TYPE: "sysstat" }),
+      myRouter.exec("lan", "show", { TYPE: "ether_info,snapshoot" }).catch((error) => {
+        console.log(`WAN 状态获取失败: ${error.message || error}`);
+        return null;
+      })
+    ]);
     const stats = getRouterData(response)?.sysstat;
     if (!stats) {
       console.log(JSON.stringify(response));
       throw new Error(getRouterError(response));
     }
-    const metrics = collectMetrics(stats);
+    const metrics = {
+      ...collectMetrics(stats),
+      ...collectWanMetrics(wanResponse)
+    };
     const logo = await new Request(LOGO_URL).loadImage();
     let rings = null;
-    if (family !== "small") {
-      const ringSize = family === "large" ? 84 : 62;
-      const ringFonts = family === "large" ? { fontLarge: 38, fontSmall: 24 } : { fontLarge: 42, fontSmall: 28 };
+    if (family === "large") {
+      const ringSize = 90;
+      const ringFonts = { fontLarge: 38, fontSmall: 24 };
       const drawRing = (percent, label, colorHex) => drawCircularProgress({
         center: new Point(100, 100),
         radius: 82,
@@ -897,7 +984,7 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
     } else if (family === "large") {
       buildLargeLayout(widget, metrics, logo, rings, updatedAt);
     } else {
-      buildMediumLayout(widget, metrics, logo, rings);
+      buildMediumLayout(widget, metrics, logo, updatedAt);
     }
   } catch (error) {
     const failure = widget.addText("获取数据失败");
@@ -915,7 +1002,7 @@ if (shouldShowWidgetMenu()) {
   for (; ; ) {
     const action = await runWidgetMenu({
       title: "爱快路由器",
-      version: "1.1.0",
+      version: "1.2.0",
       updater,
       actions: [
         {
