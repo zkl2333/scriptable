@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.6
+// @version 1.5.7
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.6", // 当前版本(与 @version 保持一致)
+  version: "1.5.7", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -55,7 +55,7 @@ if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
 // 外观即时解析, 无需重新渲染。烘焙位图(点阵底纹/LED)无法动态解析,
 // 底纹只画点、底色交给 backgroundColor; LED 取双色下都可读的琥珀色。
 // ==========================================
-const dyn = (light, dark) => new Color.dynamic(light, dark);
+const dyn = (light, dark) => Color.dynamic(light, dark);
 const C = {
   bg: dyn(new Color("#efece4"), new Color("#0b0b0b")),
   panel: dyn(new Color("#f8f6f0"), new Color("#131310")),
