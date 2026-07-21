@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.2
+// @version 1.5.3
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.2", // 当前版本(与 @version 保持一致)
+  version: "1.5.3", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -317,49 +317,36 @@ function renderSmall(w, data, time) {
 // 中组件
 // ==========================================
 function renderMedium(w, data, time) {
-  brandRow(w, time); // 品牌行占满全宽, 时间在组件右缘
-  w.addSpacer(10);
+  brandRow(w, time);
+  w.addSpacer(8);
 
-  const root = w.addStack();
-  root.centerAlignContent();
-
-  // 左列: LED 费用
-  const left = root.addStack();
-  left.layoutVertically();
-  left.size = new Size(150, 0);
-  const lab = left.addText("TODAY // 今日费用");
+  // 上部: LED 大数(宽幅组件的天然主角)
+  const lab = w.addText("TODAY // 今日费用");
   lab.font = MONO_SM;
   lab.textColor = C.dim;
-  left.addSpacer(6);
-  addLed(left, money(data.today_cost), { dot: 2.6, gap: 1.1 });
-  left.addSpacer(6);
-  const sub = left.addText(`总 $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOK`);
+  w.addSpacer(4);
+  addLed(w, money(data.today_cost), { dot: 3.2, gap: 1.3 });
+  w.addSpacer(4);
+  const sub = w.addText(`总 $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOK`);
   sub.font = MONO_SM;
   sub.textColor = C.dim;
 
-  root.addSpacer();
+  w.addSpacer(); // 弹性空间, 把指标行压到底部
 
-  // 右列: 2×2 指标格
-  const col1 = root.addStack();
-  col1.layoutVertically();
-  col1.size = new Size(82, 0);
-  cell(col1, "请求", String(data.today_success_requests ?? 0));
-  col1.addSpacer(6);
-  cell(col1, "站点", data.sites_online + "/" + data.sites_total, data.sites_online === data.sites_total ? C.green : C.yellow);
-
-  root.addSpacer(6);
-
-  const col2 = root.addStack();
-  col2.layoutVertically();
-  col2.size = new Size(82, 0);
+  // 底部: 一排 4 个指标格(终端磁带行)
+  const row = w.addStack();
+  cell(row, "请求", String(data.today_success_requests ?? 0));
+  row.addSpacer(6);
   cell(
-    col2,
+    row,
     "成功率",
     data.success_rate + "%",
     data.success_rate >= 99 ? C.green : data.success_rate >= 95 ? C.yellow : C.red
   );
-  col2.addSpacer(6);
-  cell(col2, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
+  row.addSpacer(6);
+  cell(row, "站点", data.sites_online + "/" + data.sites_total, data.sites_online === data.sites_total ? C.green : C.yellow);
+  row.addSpacer(6);
+  cell(row, "KEY", data.keys_active + "/" + data.keys_total, data.keys_active === data.keys_total ? C.fg : C.yellow);
 }
 
 // ==========================================
