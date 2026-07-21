@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.4.2
+// @version 1.4.3
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里本脚本最下方点「运行」一次:
@@ -26,7 +26,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.4.2", // 当前版本(与 @version 保持一致)
+  version: "1.4.3", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -122,6 +122,12 @@ const LED_FONT = {
   " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
 };
 
+// 老版 Scriptable 的 respectScreenScale 是布尔属性, 新版是方法, 两种形态都兼容
+function _respectScale(ctx) {
+  if (typeof ctx.respectScreenScale === "function") ctx.respectScreenScale();
+  else ctx.respectScreenScale = true;
+}
+
 // 把文本渲染成 LED 点阵图(灭灯位保留暗点, 像真数码管)
 function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const glyphs = [...String(text)].map((ch) => LED_FONT[ch] || LED_FONT[" "]);
@@ -131,7 +137,7 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
-  ctx.respectScreenScale();
+  _respectScale(ctx);
   glyphs.forEach((glyph, i) => {
     for (let r = 0; r < 7; r++) {
       for (let col = 0; col < 5; col++) {
@@ -151,7 +157,7 @@ function dotGrid(family) {
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = true;
-  ctx.respectScreenScale();
+  _respectScale(ctx);
   ctx.setFillColor(C.bg);
   ctx.fillRect(new Rect(0, 0, w, h));
   ctx.setFillColor(C.grid);
@@ -666,7 +672,8 @@ async function runSetup() {
   const tokenAlert = new Alert();
   tokenAlert.title = "Admin Access Token";
   tokenAlert.message = "控制台 → 个人设置 → Access Token";
-  tokenAlert.addSecureTextField("xlyra-admin-...");
+  if (typeof tokenAlert.addSecureTextField === "function") tokenAlert.addSecureTextField("xlyra-admin-...");
+  else tokenAlert.addTextField("xlyra-admin-...");
   tokenAlert.addAction("验证并保存");
   tokenAlert.addCancelAction("取消");
   if ((await tokenAlert.presentAlert()) !== 0) return;
@@ -701,7 +708,8 @@ async function runMenu() {
   menu.addAction("检查更新");
   menu.addAction("刷新预览");
   menu.addCancelAction("关闭");
-  const idx = await menu.presentSheet();
+  // presentSheet 是较新的 API, 老版本回退到 presentAlert
+  const idx = typeof menu.presentSheet === "function" ? await menu.presentSheet() : await menu.presentAlert();
   if (idx === 0) await runSetup();
   else if (idx === 1) {
     const updated = await applyUpdateIfAny({ interactive: true });
