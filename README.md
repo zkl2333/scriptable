@@ -6,6 +6,13 @@
 | --- | --- |
 | [`xlyra.js`](./xlyra.js) | xLyra AI 网关看板(Admin Token:请求/成本/站点健康/Key/模型 TOP3) |
 | [`ikuai.js`](./ikuai.js) | iKuai 软路由状态(在线设备、流量) |
+| [`time-progress.js`](./time-progress.js) | 今日时间进度条 |
+| [`work-helper.js`](./work-helper.js) | 上班助手(节假日感知) |
+| [`offwork-countdown.js`](./offwork-countdown.js) | 下班倒计时(9:30–18:00) |
+| [`holiday-assistant.js`](./holiday-assistant.js) | 放假助手(下一个假期倒计时) |
+| [`rest-day.js`](./rest-day.js) | 休息日倒计时 |
+| [`hitokoto.js`](./hitokoto.js) | 一言(每日一句) |
+| [`milk-tea-reminder.js`](./milk-tea-reminder.js) | 提醒喝奶茶小助手 |
 
 ---
 
