@@ -3,7 +3,7 @@
 // 数据源: xLyra Admin API (/api/v1/dashboard/epaper-summary)
 // 风格: 彭博终端 × 点阵 LED × 粗野主义
 // 作者: zkl2333
-// @version 1.5.0
+// @version 1.5.1
 // ==========================================
 //
 // 【首次配置】在 Scriptable 里运行一次脚本:
@@ -30,7 +30,7 @@ const CONFIG = {
   adminToken: "",
   timeoutMs: 8000, // 单次请求超时(毫秒)
   autoUpdate: true, // 自动更新开关
-  version: "1.5.0", // 当前版本(与 @version 保持一致)
+  version: "1.5.1", // 当前版本(与 @version 保持一致)
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/xlyra.js", //  Raw 地址
   updateCheckInterval: 6 * 3600, // 更新检查节流(秒), 默认 6 小时
 };
@@ -55,7 +55,6 @@ const DARK = {
   bg: new Color("#0b0b0b"),
   panel: new Color("#131310"),
   grid: new Color("#ffffff", 0.05),
-  tick: new Color("#3a3a3a"),
   line: new Color("#3a3a3a"),
   fg: new Color("#e8e6e1"),
   dim: new Color("#8a877e"),
@@ -70,7 +69,6 @@ const LIGHT = {
   bg: new Color("#efece4"),
   panel: new Color("#f8f6f0"),
   grid: new Color("#000000", 0.07),
-  tick: new Color("#14100e"),
   line: new Color("#14100e"),
   fg: new Color("#16130f"),
   dim: new Color("#6f6a5e"),
@@ -165,13 +163,6 @@ function dotGrid(family) {
   for (let y = 5; y < h; y += 9) {
     for (let x = 5; x < w; x += 9) ctx.fillRect(new Rect(x, y, 1.3, 1.3));
   }
-  // 顺着系统圆角走的细边框(不用直角刻度, 会和圆角遮罩打架)
-  const frame = new Path();
-  frame.addRoundedRect(new Rect(5, 5, w - 10, h - 10), 16, 16);
-  ctx.addPath(frame);
-  ctx.setStrokeColor(C.tick);
-  ctx.setLineWidth(1.2);
-  ctx.strokePath();
   return ctx.getImage();
 }
 
@@ -257,7 +248,7 @@ function renderSmall(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   w.addSpacer(4);
-  const led = ledImage("$" + money(data.today_cost), { dot: 2.2, gap: 0.9 });
+  const led = ledImage(money(data.today_cost), { dot: 2.2, gap: 0.9 });
   w.addImage(led);
   w.addSpacer(4);
   const sub = w.addText(`总 $${money(data.total_cost)} · ${compact(data.today_tokens)} TOK`);
@@ -332,7 +323,7 @@ function renderMedium(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   left.addSpacer(5);
-  left.addImage(ledImage("$" + money(data.today_cost), { dot: 2.6, gap: 1.1 }));
+  left.addImage(ledImage(money(data.today_cost), { dot: 2.6, gap: 1.1 }));
   left.addSpacer(5);
   const sub = left.addText(`总 $${money(data.total_cost)}`);
   sub.font = MONO_SM;
@@ -384,7 +375,7 @@ function renderLarge(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   w.addSpacer(5);
-  w.addImage(ledImage("$" + money(data.today_cost), { dot: 4.2, gap: 1.8 }));
+  w.addImage(ledImage(money(data.today_cost), { dot: 4.2, gap: 1.8 }));
   w.addSpacer(5);
   const sub = w.addText(`TOTAL $${money(data.total_cost)} · 今日 ${compact(data.today_tokens)} TOKENS`);
   sub.font = MONO_SM;
