@@ -23,7 +23,7 @@ const widgets = [
     iconColor: 'yellow',
     iconGlyph: 'hourglass-half',
   },
-  { name: 'work-helper', version: '2.0.3', iconColor: 'teal', iconGlyph: 'magic' },
+  { name: 'work-helper', version: '2.1.0', iconColor: 'teal', iconGlyph: 'magic' },
   { name: 'xlyra', version: '1.6.5', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
 ];
 

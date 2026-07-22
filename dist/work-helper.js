@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: teal; icon-glyph: magic;
 // @script-id work-helper
-// @version 2.0.3
+// @version 2.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -128,31 +128,36 @@ var attachMenuURL = (widget) => {
 };
 var presentWidget = async (widget, fallbackFamily = "medium") => {
   const family = fallbackFamily;
+  if (family === "accessoryInline") return widget.presentAccessoryInline();
+  if (family === "accessoryCircular") return widget.presentAccessoryCircular();
+  if (family === "accessoryRectangular") {
+    return widget.presentAccessoryRectangular();
+  }
   if (family === "large") return widget.presentLarge();
   if (family === "small") return widget.presentSmall();
   return widget.presentMedium();
 };
-var selectPreviewFamilies = async () => {
+var PREVIEW_LABELS = {
+  small: "小尺寸 Small",
+  medium: "中尺寸 Medium",
+  large: "大尺寸 Large",
+  accessoryInline: "锁屏单行 Inline",
+  accessoryCircular: "锁屏圆形 Circular",
+  accessoryRectangular: "锁屏矩形 Rectangular"
+};
+var DEFAULT_PREVIEW_FAMILIES = ["small", "medium", "large"];
+var selectPreviewFamilies = async (families) => {
   const alert = new Alert();
   alert.title = "预览组件";
-  alert.message = "测试桌面组件在各种尺寸下的显示效果";
-  alert.addAction("小尺寸 Small");
-  alert.addAction("中尺寸 Medium");
-  alert.addAction("大尺寸 Large");
+  alert.message = "测试组件在各种尺寸下的显示效果";
+  families.forEach((family) => alert.addAction(PREVIEW_LABELS[family] || family));
   alert.addAction("全部 All");
   alert.addCancelAction("取消操作");
-  switch (await alert.presentSheet()) {
-    case 0:
-      return ["small"];
-    case 1:
-      return ["medium"];
-    case 2:
-      return ["large"];
-    case 3:
-      return ["small", "medium", "large"];
-    default:
-      return null;
-  }
+  const index = await alert.presentSheet();
+  if (index < 0) return null;
+  if (index < families.length) return [families[index]];
+  if (index === families.length) return families;
+  return null;
 };
 var presentWidgetPreviews = async (createWidget2, families) => {
   for (const family of families) {
@@ -164,7 +169,8 @@ var runWidgetMenu = async ({
   message = "",
   version,
   updater: updater2,
-  actions = []
+  actions = [],
+  previewFamilies = DEFAULT_PREVIEW_FAMILIES
 }) => {
   const alert = new Alert();
   alert.title = title;
@@ -176,7 +182,7 @@ var runWidgetMenu = async ({
   const index = await alert.presentSheet();
   if (index === -1) return null;
   if (index === 0) {
-    const families = await selectPreviewFamilies();
+    const families = await selectPreviewFamilies(previewFamilies);
     return families ? { action: "preview", families } : null;
   }
   const actionIndex = index - 1;
@@ -188,7 +194,7 @@ var runWidgetMenu = async ({
 // src/widgets/work-helper.js
 var updater = createUpdater({
   scriptId: "work-helper",
-  version: "2.0.3",
+  version: "2.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/work-helper.js"
 });
 await updater.autoUpdate();
@@ -361,6 +367,29 @@ var METRICS = {
   medium: { hero: 32, barWidth: 290, showHoliday: true },
   large: { hero: 36, barWidth: 290, showHoliday: true }
 };
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  ...ACCESSORY_FAMILIES
+];
+var ACCESSORY_FOREGROUND = Color.dynamic(
+  new Color("#111111"),
+  new Color("#FFFFFF")
+);
+var ACCESSORY_SECONDARY = Color.dynamic(
+  new Color("#111111", 0.62),
+  new Color("#FFFFFF", 0.68)
+);
+var ACCESSORY_TRACK = Color.dynamic(
+  new Color("#111111", 0.2),
+  new Color("#FFFFFF", 0.22)
+);
 var WEEKDAYS = "日一二三四五六";
 var PHASES = {
   beforeWork: { label: "待上班", symbol: "sunrise.fill" },
@@ -368,11 +397,188 @@ var PHASES = {
   afterWork: { label: "已下班", symbol: "moon.stars.fill" },
   rest: { label: "休息日", symbol: "cup.and.saucer.fill" }
 };
+var ACCESSORY_PHASES = {
+  beforeWork: { label: "待上班", symbol: "sunrise.fill" },
+  working: { label: "工作中", symbol: "briefcase.fill" },
+  afterWork: { label: "已下班", symbol: "sunset.fill" },
+  rest: { label: "休息日", symbol: "leaf.fill" }
+};
 var getPhase = (todayInfo) => {
   if (!todayInfo.isWorkDay) return "rest";
   if (nowDate < startDate) return "beforeWork";
   if (nowDate < endDate) return "working";
   return "afterWork";
+};
+var getWorkProgress = () => {
+  const total = endDate - startDate;
+  return Math.min(Math.max((nowDate - startDate) / total, 0), 1);
+};
+var formatCompactDuration = (date) => {
+  const totalMinutes = Math.max(1, Math.ceil((date - nowDate) / 6e4));
+  if (totalMinutes < 60) return `${totalMinutes}分钟`;
+  if (totalMinutes < 24 * 60) {
+    const hours2 = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours2}时${minutes ? `${minutes}分` : ""}`;
+  }
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor(totalMinutes % (24 * 60) / 60);
+  return `${days}天${hours ? `${hours}时` : ""}`;
+};
+var setAccessoryRefreshAfterDate = (widget) => {
+  const nextRefresh = new Date(nowDate.getTime() + 15 * 60 * 1e3);
+  if (!widget.refreshAfterDate || widget.refreshAfterDate > nextRefresh) {
+    widget.refreshAfterDate = nextRefresh;
+  }
+};
+var addAccessoryInline = (widget, phase, countdown) => {
+  widget.setPadding(0, 0, 0, 0);
+  const row = widget.addStack();
+  row.centerAlignContent();
+  const info = ACCESSORY_PHASES[phase];
+  const icon = row.addImage(SFSymbol.named(info.symbol).image);
+  icon.imageSize = new Size(12, 12);
+  icon.tintColor = ACCESSORY_FOREGROUND;
+  row.addSpacer(4);
+  let value;
+  if (phase === "working") {
+    value = `上班中 ${Math.round(getWorkProgress() * 100)}%`;
+  } else if (phase === "afterWork") {
+    value = `距上班 ${formatCompactDuration(countdown.date)}`;
+  } else if (phase === "rest") {
+    value = `今日休息 · 距上班 ${formatCompactDuration(countdown.date)}`;
+  } else {
+    value = `距上班 ${formatCompactDuration(countdown.date)}`;
+  }
+  const text = row.addText(value);
+  text.font = Font.semiboldSystemFont(12);
+  text.textColor = ACCESSORY_FOREGROUND;
+  text.lineLimit = 1;
+  text.minimumScaleFactor = 0.8;
+};
+var createAccessoryCircularImage = (phase) => {
+  const size = 58;
+  const center = size / 2;
+  const radius = 25;
+  const dotSize = 3;
+  const dotCount = 48;
+  const context = new DrawContext();
+  context.size = new Size(size, size);
+  context.opaque = false;
+  context.respectScreenScale = true;
+  const progress = phase === "working" ? getWorkProgress() : phase === "afterWork" ? 1 : 0;
+  const activeDots = Math.round(progress * dotCount);
+  for (let index = 0; index < dotCount; index++) {
+    const angle = -Math.PI / 2 + index / dotCount * Math.PI * 2;
+    const x = center + Math.cos(angle) * radius - dotSize / 2;
+    const y = center + Math.sin(angle) * radius - dotSize / 2;
+    context.setFillColor(
+      new Color("#FFFFFF", index < activeDots ? 1 : 0.2)
+    );
+    context.fillEllipse(new Rect(x, y, dotSize, dotSize));
+  }
+  context.setTextAlignedCenter();
+  context.setTextColor(new Color("#FFFFFF"));
+  if (phase === "working") {
+    context.setFont(Font.semiboldRoundedSystemFont(15));
+    context.drawTextInRect(
+      `${Math.round(progress * 100)}%`,
+      new Rect(4, 20, size - 8, 20)
+    );
+  } else {
+    const info = ACCESSORY_PHASES[phase];
+    const symbol = SFSymbol.named(info.symbol);
+    symbol.applyFont(Font.systemFont(18));
+    context.drawImageInRect(symbol.image, new Rect(20, 13, 18, 18));
+    context.setFont(Font.mediumSystemFont(9));
+    context.drawTextInRect(info.label, new Rect(4, 34, size - 8, 13));
+  }
+  return context.getImage();
+};
+var addAccessoryCircular = (widget, phase) => {
+  widget.setPadding(0, 0, 0, 0);
+  widget.addSpacer();
+  const row = widget.addStack();
+  row.addSpacer();
+  const image = row.addImage(createAccessoryCircularImage(phase));
+  image.imageSize = new Size(58, 58);
+  image.tintColor = ACCESSORY_FOREGROUND;
+  row.addSpacer();
+  widget.addSpacer();
+};
+var addAccessoryRectangular = (widget, phase, countdown) => {
+  widget.setPadding(5, 7, 5, 7);
+  const info = ACCESSORY_PHASES[phase];
+  const progress = getWorkProgress();
+  const header = widget.addStack();
+  header.centerAlignContent();
+  const icon = header.addImage(SFSymbol.named(info.symbol).image);
+  icon.imageSize = new Size(11, 11);
+  icon.tintColor = ACCESSORY_FOREGROUND;
+  header.addSpacer(4);
+  const status = header.addText(info.label);
+  status.font = Font.semiboldSystemFont(11);
+  status.textColor = ACCESSORY_FOREGROUND;
+  header.addSpacer();
+  const schedule = header.addText("09:30 - 18:00");
+  schedule.font = Font.mediumSystemFont(9);
+  schedule.textColor = ACCESSORY_SECONDARY;
+  widget.addSpacer(2);
+  const main = widget.addStack();
+  main.centerAlignContent();
+  const prefix = main.addText(phase === "working" ? "还剩 " : "距上班 ");
+  prefix.font = Font.mediumSystemFont(11);
+  prefix.textColor = ACCESSORY_SECONDARY;
+  const date = main.addDate(countdown.date);
+  date.font = Font.semiboldRoundedSystemFont(17);
+  date.textColor = ACCESSORY_FOREGROUND;
+  date.applyRelativeStyle();
+  date.minimumScaleFactor = 0.72;
+  if (phase === "working") {
+    main.addSpacer();
+    const percent = main.addText(`${Math.round(progress * 100)}%`);
+    percent.font = Font.semiboldRoundedSystemFont(11);
+    percent.textColor = ACCESSORY_SECONDARY;
+    widget.addSpacer(5);
+    const barWidth = 140;
+    const bar = widget.addStack();
+    bar.size = new Size(barWidth, 3);
+    bar.cornerRadius = 1.5;
+    bar.backgroundColor = ACCESSORY_TRACK;
+    const fill = bar.addStack();
+    fill.size = new Size(Math.max(3, Math.round(barWidth * progress)), 3);
+    fill.cornerRadius = 1.5;
+    fill.backgroundColor = ACCESSORY_FOREGROUND;
+    bar.addSpacer();
+  }
+};
+var addAccessoryError = (widget, family) => {
+  widget.setPadding(4, 6, 4, 6);
+  const row = widget.addStack();
+  row.centerAlignContent();
+  row.addSpacer();
+  const icon = row.addImage(
+    SFSymbol.named("exclamationmark.triangle.fill").image
+  );
+  icon.imageSize = new Size(13, 13);
+  icon.tintColor = ACCESSORY_FOREGROUND;
+  if (family !== "accessoryCircular") {
+    row.addSpacer(4);
+    const text = row.addText("数据加载失败");
+    text.font = Font.mediumSystemFont(11);
+    text.textColor = ACCESSORY_FOREGROUND;
+    text.lineLimit = 1;
+  }
+  row.addSpacer();
+};
+var addAccessoryContent = (widget, family, phase, countdown) => {
+  if (family === "accessoryInline") {
+    addAccessoryInline(widget, phase, countdown);
+  } else if (family === "accessoryCircular") {
+    addAccessoryCircular(widget, phase);
+  } else {
+    addAccessoryRectangular(widget, phase, countdown);
+  }
 };
 var addHeader = (widget, phase) => {
   const header = widget.addStack();
@@ -416,8 +622,7 @@ var addHero = (widget, countdown, metrics) => {
   }
 };
 var addProgress = (widget, metrics) => {
-  const total = endDate - startDate;
-  const pct = Math.min(Math.max((nowDate - startDate) / total, 0), 1);
+  const pct = getWorkProgress();
   const bar = widget.addStack();
   bar.size = new Size(metrics.barWidth, 8);
   bar.cornerRadius = 4;
@@ -426,6 +631,7 @@ var addProgress = (widget, metrics) => {
   fill.size = new Size(Math.max(8, Math.round(metrics.barWidth * pct)), 8);
   fill.cornerRadius = 4;
   fill.backgroundColor = COLORS.work;
+  bar.addSpacer();
   widget.addSpacer(6);
   const label = widget.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
   label.font = Font.mediumSystemFont(11);
@@ -457,37 +663,64 @@ var addHolidayCard = (widget, holiday) => {
     date.minimumScaleFactor = 0.7;
   }
 };
+var addMediumWorkingContent = (widget, countdown, holiday, metrics) => {
+  const main = widget.addStack();
+  main.centerAlignContent();
+  const hero = main.addStack();
+  hero.layoutVertically();
+  addHero(hero, countdown, metrics);
+  if (holiday) {
+    main.addSpacer(12);
+    addHolidayCard(main, holiday);
+  }
+  widget.addSpacer(10);
+  addProgress(widget, metrics);
+};
 var createWidget = async (family = config.widgetFamily || "medium") => {
   const widget = new ListWidget();
   const widgetFamily = family;
   const metrics = METRICS[widgetFamily] || METRICS.medium;
-  const gradient = new LinearGradient();
-  gradient.colors = [
-    Color.dynamic(new Color("#FAFAF8"), new Color("#161719")),
-    Color.dynamic(new Color("#EEF0F1"), new Color("#222426"))
-  ];
-  gradient.locations = [0, 1];
-  gradient.startPoint = new Point(0, 0);
-  gradient.endPoint = new Point(1, 1);
-  widget.backgroundGradient = gradient;
-  widget.setPadding(14, 16, 14, 16);
+  const isAccessory = ACCESSORY_FAMILIES.includes(widgetFamily);
+  if (isAccessory) {
+    widget.addAccessoryWidgetBackground = true;
+  } else {
+    const gradient = new LinearGradient();
+    gradient.colors = [
+      Color.dynamic(new Color("#FAFAF8"), new Color("#161719")),
+      Color.dynamic(new Color("#EEF0F1"), new Color("#222426"))
+    ];
+    gradient.locations = [0, 1];
+    gradient.startPoint = new Point(0, 0);
+    gradient.endPoint = new Point(1, 1);
+    widget.backgroundGradient = gradient;
+    widget.setPadding(14, 16, 14, 16);
+  }
   try {
     const todayInfo = await getTodayInfo();
     const workCountdown = await getWorkCountdown(todayInfo);
     setRefreshAfterDate(widget, todayInfo);
     const phase = getPhase(todayInfo);
-    addHeader(widget, phase);
-    widget.addSpacer();
-    addHero(widget, workCountdown, metrics);
-    if (phase === "working") {
-      widget.addSpacer(10);
-      addProgress(widget, metrics);
+    if (isAccessory) {
+      setAccessoryRefreshAfterDate(widget);
+      addAccessoryContent(widget, widgetFamily, phase, workCountdown);
+      return attachMenuURL(widget);
     }
+    let holidayCountdown = null;
     if (metrics.showHoliday) {
-      let holidayCountdown = null;
       try {
         holidayCountdown = await getHolidayCountdown();
       } catch {
+      }
+    }
+    addHeader(widget, phase);
+    widget.addSpacer();
+    if (widgetFamily === "medium" && phase === "working") {
+      addMediumWorkingContent(widget, workCountdown, holidayCountdown, metrics);
+    } else {
+      addHero(widget, workCountdown, metrics);
+      if (phase === "working") {
+        widget.addSpacer(10);
+        addProgress(widget, metrics);
       }
       if (holidayCountdown) {
         widget.addSpacer();
@@ -503,6 +736,10 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
       footer.textColor = COLORS.subtext;
     }
   } catch (error) {
+    if (isAccessory) {
+      addAccessoryError(widget, widgetFamily);
+      return attachMenuURL(widget);
+    }
     widget.addSpacer();
     const icon = widget.addImage(
       SFSymbol.named("exclamationmark.triangle.fill").image
@@ -521,8 +758,9 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "下班助手",
-    version: "2.0.3",
-    updater
+    version: "2.1.0",
+    updater,
+    previewFamilies: PREVIEW_FAMILIES
   });
   if (menu?.action === "preview") {
     await presentWidgetPreviews(createWidget, menu.families);

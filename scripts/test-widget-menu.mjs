@@ -36,7 +36,7 @@ globalThis.Alert = class {
   }
 };
 
-const { runWidgetMenu } = await import('../src/lib/widget-menu.js');
+const { presentWidget, runWidgetMenu } = await import('../src/lib/widget-menu.js');
 
 const updater = {
   checkForUpdate: async () => null,
@@ -48,6 +48,33 @@ assert.deepEqual(
   await runWidgetMenu({ title: '测试', version: '1.0.0', updater }),
   { action: 'preview', families: ['medium'] }
 );
+
+sheetSelections.push(0, 5);
+assert.deepEqual(
+  await runWidgetMenu({
+    title: '测试',
+    version: '1.0.0',
+    updater,
+    previewFamilies: [
+      'small',
+      'medium',
+      'large',
+      'accessoryInline',
+      'accessoryCircular',
+      'accessoryRectangular',
+    ],
+  }),
+  { action: 'preview', families: ['accessoryRectangular'] }
+);
+
+const previewCalls = [];
+await presentWidget(
+  {
+    presentAccessoryRectangular: async () => previewCalls.push('rectangular'),
+  },
+  'accessoryRectangular'
+);
+assert.deepEqual(previewCalls, ['rectangular']);
 
 sheetSelections.push(1);
 assert.deepEqual(

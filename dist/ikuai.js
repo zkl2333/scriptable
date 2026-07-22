@@ -128,31 +128,36 @@ var attachMenuURL = (widget) => {
 };
 var presentWidget = async (widget, fallbackFamily = "medium") => {
   const family = fallbackFamily;
+  if (family === "accessoryInline") return widget.presentAccessoryInline();
+  if (family === "accessoryCircular") return widget.presentAccessoryCircular();
+  if (family === "accessoryRectangular") {
+    return widget.presentAccessoryRectangular();
+  }
   if (family === "large") return widget.presentLarge();
   if (family === "small") return widget.presentSmall();
   return widget.presentMedium();
 };
-var selectPreviewFamilies = async () => {
+var PREVIEW_LABELS = {
+  small: "小尺寸 Small",
+  medium: "中尺寸 Medium",
+  large: "大尺寸 Large",
+  accessoryInline: "锁屏单行 Inline",
+  accessoryCircular: "锁屏圆形 Circular",
+  accessoryRectangular: "锁屏矩形 Rectangular"
+};
+var DEFAULT_PREVIEW_FAMILIES = ["small", "medium", "large"];
+var selectPreviewFamilies = async (families) => {
   const alert = new Alert();
   alert.title = "预览组件";
-  alert.message = "测试桌面组件在各种尺寸下的显示效果";
-  alert.addAction("小尺寸 Small");
-  alert.addAction("中尺寸 Medium");
-  alert.addAction("大尺寸 Large");
+  alert.message = "测试组件在各种尺寸下的显示效果";
+  families.forEach((family) => alert.addAction(PREVIEW_LABELS[family] || family));
   alert.addAction("全部 All");
   alert.addCancelAction("取消操作");
-  switch (await alert.presentSheet()) {
-    case 0:
-      return ["small"];
-    case 1:
-      return ["medium"];
-    case 2:
-      return ["large"];
-    case 3:
-      return ["small", "medium", "large"];
-    default:
-      return null;
-  }
+  const index = await alert.presentSheet();
+  if (index < 0) return null;
+  if (index < families.length) return [families[index]];
+  if (index === families.length) return families;
+  return null;
 };
 var presentWidgetPreviews = async (createWidget2, families) => {
   for (const family of families) {
@@ -164,7 +169,8 @@ var runWidgetMenu = async ({
   message = "",
   version,
   updater: updater2,
-  actions = []
+  actions = [],
+  previewFamilies = DEFAULT_PREVIEW_FAMILIES
 }) => {
   const alert = new Alert();
   alert.title = title;
@@ -176,7 +182,7 @@ var runWidgetMenu = async ({
   const index = await alert.presentSheet();
   if (index === -1) return null;
   if (index === 0) {
-    const families = await selectPreviewFamilies();
+    const families = await selectPreviewFamilies(previewFamilies);
     return families ? { action: "preview", families } : null;
   }
   const actionIndex = index - 1;
