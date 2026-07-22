@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: yellow; icon-glyph: hourglass-half;
 // @script-id time-progress
-// @version 1.0.2
+// @version 1.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -194,56 +194,161 @@ var runWidgetMenu = async ({
 // src/widgets/time-progress.js
 var updater = createUpdater({
   scriptId: "time-progress",
-  version: "1.0.2",
+  version: "1.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/time-progress.js"
 });
 await updater.autoUpdate();
-var width = 300;
-var h = 4;
-var createWidget = () => {
-  const widget = new ListWidget();
-  widget.backgroundColor = new Color("#222222");
-  const now = /* @__PURE__ */ new Date();
-  const weekday = now.getDay() === 0 ? 6 : now.getDay() - 1;
-  const minutes = now.getMinutes();
-  const labels = Device.locale() === "zh_CN" ? ["今日", "本周", "本月", "今年"] : ["Today", "This week", "This month", "This year"];
-  addProgressRow(widget, 24 * 60, (now.getHours() + 1) * 60 + minutes, labels[0]);
-  addProgressRow(widget, 7, weekday + 1, labels[1]);
-  addProgressRow(widget, 30, now.getDate() + 1, labels[2]);
-  addProgressRow(widget, 12, now.getMonth() + 1, labels[3]);
-  return attachMenuURL(widget);
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var PREVIEW_FAMILIES = ["small", "medium", "large", ...ACCESSORY_FAMILIES];
+var COLORS = {
+  text: Color.dynamic(new Color("#202124"), new Color("#F3F4F6")),
+  muted: Color.dynamic(new Color("#72777F"), new Color("#9DA3AB")),
+  track: Color.dynamic(new Color("#DCE1E5"), new Color("#353A40")),
+  accents: ["#E05D5D", "#E19A37", "#2F9C82", "#4D78CC"]
 };
-function addProgressRow(widget, total, haveGone, label) {
-  const title = widget.addText(label);
-  title.textColor = new Color("#e587ce");
-  title.font = Font.boldSystemFont(13);
-  widget.addSpacer(6);
-  const image = widget.addImage(creatProgress(total, haveGone));
-  image.imageSize = new Size(width, h);
-  widget.addSpacer(6);
-}
-function creatProgress(total, havegone) {
+var ACCESSORY_COLOR = Color.dynamic(new Color("#111111"), new Color("#FFFFFF"));
+var ACCESSORY_TRACK = Color.dynamic(new Color("#111111", 0.2), new Color("#FFFFFF", 0.22));
+var clamp = (value) => Math.min(1, Math.max(0, value));
+var getProgressItems = (now = /* @__PURE__ */ new Date()) => {
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const nextDay = new Date(startOfDay);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const weekday = (now.getDay() + 6) % 7;
+  const startOfWeek = new Date(startOfDay);
+  startOfWeek.setDate(startOfWeek.getDate() - weekday);
+  const nextWeek = new Date(startOfWeek);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const nextYear = new Date(now.getFullYear() + 1, 0, 1);
+  const ratio = (start, end) => clamp((now - start) / (end - start));
+  return [
+    { label: "今日", progress: ratio(startOfDay, nextDay) },
+    { label: "本周", progress: ratio(startOfWeek, nextWeek) },
+    { label: "本月", progress: ratio(startOfMonth, nextMonth) },
+    { label: "今年", progress: ratio(startOfYear, nextYear) }
+  ];
+};
+var drawProgress = (width, height, progress, color, track = COLORS.track) => {
   const context = new DrawContext();
-  context.size = new Size(width, h);
+  context.size = new Size(width, height);
   context.opaque = false;
   context.respectScreenScale = true;
-  context.setFillColor(new Color("#48484b"));
-  const path = new Path();
-  path.addRoundedRect(new Rect(0, 0, width, h), 3, 2);
-  context.addPath(path);
+  context.setFillColor(track);
+  const background = new Path();
+  background.addRoundedRect(new Rect(0, 0, width, height), height / 2, height / 2);
+  context.addPath(background);
   context.fillPath();
-  context.setFillColor(new Color("#ffd60a"));
-  const path1 = new Path();
-  path1.addRoundedRect(new Rect(0, 0, width * havegone / total, h), 3, 2);
-  context.addPath(path1);
-  context.fillPath();
+  const fillWidth = Math.round(width * clamp(progress));
+  if (fillWidth > 0) {
+    context.setFillColor(color);
+    const fill = new Path();
+    fill.addRoundedRect(new Rect(0, 0, fillWidth, height), height / 2, height / 2);
+    context.addPath(fill);
+    context.fillPath();
+  }
   return context.getImage();
-}
+};
+var addProgressRow = (parent, item, width, compact = false, monochrome = false) => {
+  const row = parent.addStack();
+  row.centerAlignContent();
+  const label = row.addText(item.label);
+  label.font = Font.semiboldSystemFont(compact ? 10 : 11);
+  label.textColor = monochrome ? ACCESSORY_COLOR : COLORS.muted;
+  label.lineLimit = 1;
+  row.addSpacer(compact ? 6 : 9);
+  const image = row.addImage(
+    drawProgress(
+      width,
+      compact ? 4 : 6,
+      item.progress,
+      monochrome ? ACCESSORY_COLOR : new Color(COLORS.accents[item.index]),
+      monochrome ? ACCESSORY_TRACK : COLORS.track
+    )
+  );
+  image.imageSize = new Size(width, compact ? 4 : 6);
+  row.addSpacer(compact ? 5 : 8);
+  const percent = row.addText(`${Math.round(item.progress * 100)}%`);
+  percent.font = Font.semiboldRoundedSystemFont(compact ? 10 : 11);
+  percent.textColor = monochrome ? ACCESSORY_COLOR : COLORS.text;
+};
+var addAccessory = (widget, family, items) => {
+  widget.setPadding(0, 0, 0, 0);
+  if (family === "accessoryInline") {
+    const text = widget.addText(`今日 ${Math.round(items[0].progress * 100)}% · 本周 ${Math.round(items[1].progress * 100)}%`);
+    text.font = Font.semiboldSystemFont(12);
+    text.textColor = ACCESSORY_COLOR;
+    text.lineLimit = 1;
+    return;
+  }
+  if (family === "accessoryCircular") {
+    widget.addSpacer();
+    const label = widget.addText("今日");
+    label.font = Font.mediumSystemFont(9);
+    label.textColor = ACCESSORY_COLOR;
+    label.centerAlignText();
+    const value = widget.addText(`${Math.round(items[0].progress * 100)}%`);
+    value.font = Font.boldRoundedSystemFont(17);
+    value.textColor = ACCESSORY_COLOR;
+    value.centerAlignText();
+    widget.addSpacer();
+    return;
+  }
+  widget.setPadding(5, 5, 5, 5);
+  addProgressRow(widget, items[0], 62, true, true);
+  widget.addSpacer(6);
+  addProgressRow(widget, items[1], 62, true, true);
+};
+var addMain = (widget, family, items) => {
+  const gradient = new LinearGradient();
+  gradient.colors = [
+    Color.dynamic(new Color("#F8FAFB"), new Color("#17191C")),
+    Color.dynamic(new Color("#E8EDF0"), new Color("#25292E"))
+  ];
+  gradient.locations = [0, 1];
+  gradient.startPoint = new Point(0, 0);
+  gradient.endPoint = new Point(1, 1);
+  widget.backgroundGradient = gradient;
+  widget.setPadding(family === "small" ? 13 : 16, family === "small" ? 13 : 18, 13, family === "small" ? 13 : 18);
+  const title = widget.addText("时间进度");
+  title.font = Font.boldSystemFont(family === "large" ? 18 : 14);
+  title.textColor = COLORS.text;
+  const subtitle = widget.addText("把时间看见");
+  subtitle.font = Font.mediumSystemFont(10);
+  subtitle.textColor = COLORS.muted;
+  widget.addSpacer();
+  const width = family === "small" ? 56 : family === "medium" ? 220 : 270;
+  for (const [index, item] of items.entries()) {
+    addProgressRow(widget, { ...item, index }, width, family === "small");
+    if (index < items.length - 1) widget.addSpacer(family === "small" ? 8 : family === "medium" ? 7 : 14);
+  }
+  if (family === "large") {
+    widget.addSpacer();
+    const note = widget.addText("进度按实际日历长度计算，每 15 分钟自动刷新");
+    note.font = Font.systemFont(10);
+    note.textColor = COLORS.muted;
+  }
+};
+var createWidget = (family = config.widgetFamily || "small") => {
+  const widget = new ListWidget();
+  const items = getProgressItems();
+  if (ACCESSORY_FAMILIES.includes(family)) addAccessory(widget, family, items);
+  else addMain(widget, family, items);
+  widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1e3);
+  return attachMenuURL(widget);
+};
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "时间进度",
-    version: "1.0.2",
-    updater
+    version: "1.1.0",
+    updater,
+    previewFamilies: PREVIEW_FAMILIES
   });
   if (menu?.action === "preview") {
     await presentWidgetPreviews(createWidget, menu.families);

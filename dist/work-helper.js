@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: teal; icon-glyph: magic;
 // @script-id work-helper
-// @version 2.1.0
+// @version 2.1.1
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -194,7 +194,7 @@ var runWidgetMenu = async ({
 // src/widgets/work-helper.js
 var updater = createUpdater({
   scriptId: "work-helper",
-  version: "2.1.0",
+  version: "2.1.1",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/work-helper.js"
 });
 await updater.autoUpdate();
@@ -344,7 +344,9 @@ var setRefreshAfterDate = (widget, todayInfo) => {
   if (todayInfo.isWorkDay && nowDate < startDate) {
     widget.refreshAfterDate = startDate;
   } else if (todayInfo.isWorkDay && nowDate < endDate) {
-    widget.refreshAfterDate = endDate;
+    widget.refreshAfterDate = new Date(
+      Math.min(endDate.getTime(), nowDate.getTime() + 15 * 60 * 1e3)
+    );
   } else {
     const tomorrow = new Date(nowDate);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -446,7 +448,7 @@ var addAccessoryInline = (widget, phase, countdown) => {
   } else if (phase === "afterWork") {
     value = `距上班 ${formatCompactDuration(countdown.date)}`;
   } else if (phase === "rest") {
-    value = `今日休息 · 距上班 ${formatCompactDuration(countdown.date)}`;
+    value = `休息 · 距上班 ${formatCompactDuration(countdown.date)}`;
   } else {
     value = `距上班 ${formatCompactDuration(countdown.date)}`;
   }
@@ -457,9 +459,9 @@ var addAccessoryInline = (widget, phase, countdown) => {
   text.minimumScaleFactor = 0.8;
 };
 var createAccessoryCircularImage = (phase) => {
-  const size = 58;
+  const size = 54;
   const center = size / 2;
-  const radius = 25;
+  const radius = 23;
   const dotSize = 3;
   const dotCount = 48;
   const context = new DrawContext();
@@ -483,15 +485,15 @@ var createAccessoryCircularImage = (phase) => {
     context.setFont(Font.semiboldRoundedSystemFont(15));
     context.drawTextInRect(
       `${Math.round(progress * 100)}%`,
-      new Rect(4, 20, size - 8, 20)
+      new Rect(4, 18, size - 8, 20)
     );
   } else {
     const info = ACCESSORY_PHASES[phase];
     const symbol = SFSymbol.named(info.symbol);
     symbol.applyFont(Font.systemFont(18));
-    context.drawImageInRect(symbol.image, new Rect(20, 13, 18, 18));
+    context.drawImageInRect(symbol.image, new Rect(18, 11, 18, 18));
     context.setFont(Font.mediumSystemFont(9));
-    context.drawTextInRect(info.label, new Rect(4, 34, size - 8, 13));
+    context.drawTextInRect(info.label, new Rect(4, 32, size - 8, 13));
   }
   return context.getImage();
 };
@@ -501,7 +503,7 @@ var addAccessoryCircular = (widget, phase) => {
   const row = widget.addStack();
   row.addSpacer();
   const image = row.addImage(createAccessoryCircularImage(phase));
-  image.imageSize = new Size(58, 58);
+  image.imageSize = new Size(54, 54);
   image.tintColor = ACCESSORY_FOREGROUND;
   row.addSpacer();
   widget.addSpacer();
@@ -520,7 +522,7 @@ var addAccessoryRectangular = (widget, phase, countdown) => {
   status.font = Font.semiboldSystemFont(11);
   status.textColor = ACCESSORY_FOREGROUND;
   header.addSpacer();
-  const schedule = header.addText("09:30 - 18:00");
+  const schedule = header.addText("09:30–18:00");
   schedule.font = Font.mediumSystemFont(9);
   schedule.textColor = ACCESSORY_SECONDARY;
   widget.addSpacer(2);
@@ -546,9 +548,12 @@ var addAccessoryRectangular = (widget, phase, countdown) => {
     bar.cornerRadius = 1.5;
     bar.backgroundColor = ACCESSORY_TRACK;
     const fill = bar.addStack();
-    fill.size = new Size(Math.max(3, Math.round(barWidth * progress)), 3);
-    fill.cornerRadius = 1.5;
-    fill.backgroundColor = ACCESSORY_FOREGROUND;
+    const fillWidth = Math.round(barWidth * progress);
+    if (fillWidth > 0) {
+      fill.size = new Size(fillWidth, 3);
+      fill.cornerRadius = 1.5;
+      fill.backgroundColor = ACCESSORY_FOREGROUND;
+    }
     bar.addSpacer();
   }
 };
@@ -628,9 +633,12 @@ var addProgress = (widget, metrics) => {
   bar.cornerRadius = 4;
   bar.backgroundColor = COLORS.track;
   const fill = bar.addStack();
-  fill.size = new Size(Math.max(8, Math.round(metrics.barWidth * pct)), 8);
-  fill.cornerRadius = 4;
-  fill.backgroundColor = COLORS.work;
+  const fillWidth = Math.round(metrics.barWidth * pct);
+  if (fillWidth > 0) {
+    fill.size = new Size(fillWidth, 8);
+    fill.cornerRadius = 4;
+    fill.backgroundColor = COLORS.work;
+  }
   bar.addSpacer();
   widget.addSpacer(6);
   const label = widget.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
@@ -681,9 +689,7 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
   const widgetFamily = family;
   const metrics = METRICS[widgetFamily] || METRICS.medium;
   const isAccessory = ACCESSORY_FAMILIES.includes(widgetFamily);
-  if (isAccessory) {
-    widget.addAccessoryWidgetBackground = true;
-  } else {
+  if (!isAccessory) {
     const gradient = new LinearGradient();
     gradient.colors = [
       Color.dynamic(new Color("#FAFAF8"), new Color("#161719")),
@@ -758,7 +764,7 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "下班助手",
-    version: "2.1.0",
+    version: "2.1.1",
     updater,
     previewFamilies: PREVIEW_FAMILIES
   });

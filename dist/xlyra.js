@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: purple; icon-glyph: tachometer-alt;
 // @script-id xlyra
-// @version 1.6.5
+// @version 1.7.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -199,14 +199,14 @@ var CONFIG = {
   // 单次请求超时(毫秒)
   autoUpdate: true,
   // 自动更新开关
-  version: "1.6.5"
+  version: "1.7.0"
 };
 var KC_URL = "xlyra.baseURL";
 var KC_URL_LEGACY = "xlyra.consoleURL";
 var KC_TOKEN = "xlyra.adminToken";
 var updater = createUpdater({
   scriptId: "xlyra",
-  version: "1.6.5",
+  version: "1.7.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/xlyra.js"
 });
 if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
@@ -225,10 +225,21 @@ var C = {
   green: dyn(new Color("#0a7d4e"), new Color("#3dd68c")),
   red: dyn(new Color("#c2242a"), new Color("#f2555a")),
   yellow: dyn(new Color("#8a6d00"), new Color("#ffd60a")),
-  led: new Color("#f59e0b"),
-  // 烘焙位图, 深浅底色下都可读的琥珀
-  ledDim: new Color("#f59e0b", 0.13)
+  led: new Color("#d97706"),
+  // 位图无法动态换色，选取兼顾米白与黑底的深琥珀
+  ledDim: new Color("#d97706", 0.14)
 };
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var PREVIEW_FAMILIES = ["small", "medium", "large", ...ACCESSORY_FAMILIES];
+var ACCESSORY_COLOR = Color.dynamic(new Color("#111111"), new Color("#FFFFFF"));
+var ACCESSORY_SECONDARY = Color.dynamic(
+  new Color("#111111", 0.62),
+  new Color("#FFFFFF", 0.68)
+);
 var _monoFont = typeof Font.regularMonospacedSystemFont === "function" ? (s, w) => w === "bold" ? Font.boldMonospacedSystemFont(s) : Font.regularMonospacedSystemFont(s) : (s, w) => {
   try {
     return new Font(w === "bold" ? "Menlo-Bold" : "Menlo", s);
@@ -283,10 +294,11 @@ function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
   });
   return { image: ctx.getImage(), width: w, height: h };
 }
-function addLed(parent, text, opts) {
+function addLed(parent, text, opts, maxWidth = null) {
   const led = ledImage(text, opts);
   const wi = parent.addImage(led.image);
-  wi.imageSize = new Size(led.width, led.height);
+  const scale = maxWidth && led.width > maxWidth ? maxWidth / led.width : 1;
+  wi.imageSize = new Size(Math.round(led.width * scale), Math.round(led.height * scale));
   return wi;
 }
 function dotGrid(family) {
@@ -351,7 +363,7 @@ function renderSmall(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   w.addSpacer(4);
-  addLed(w, money(data.today_cost), { dot: 2.2, gap: 0.9 });
+  addLed(w, money(data.today_cost), { dot: 2.2, gap: 0.9 }, 130);
   w.addSpacer(4);
   const sub = w.addText(`总 $${money(data.total_cost)} · ${compact(data.today_tokens)} TOK`);
   sub.font = MONO_SM;
@@ -415,7 +427,7 @@ function renderMedium(w, data, time) {
   lab.font = MONO_SM;
   lab.textColor = C.dim;
   left.addSpacer(3);
-  addLed(left, money(data.today_cost), { dot: 2.4, gap: 1 });
+  addLed(left, money(data.today_cost), { dot: 2.4, gap: 1 }, 148);
   left.addSpacer(3);
   const sub = left.addText(`总 $${money(data.total_cost)} · ${compact(data.today_tokens)} TOK`);
   sub.font = MONO_SM;
@@ -473,7 +485,7 @@ function renderLarge(w, data, time) {
   w.addSpacer(4);
   const ledRow = w.addStack();
   ledRow.centerAlignContent();
-  addLed(ledRow, money(data.today_cost), { dot: 4.2, gap: 1.8 });
+  addLed(ledRow, money(data.today_cost), { dot: 4.2, gap: 1.8 }, 220);
   ledRow.addSpacer(14);
   const agg = ledRow.addStack();
   agg.layoutVertically();
@@ -511,7 +523,7 @@ function renderLarge(w, data, time) {
   w.addSpacer(10);
   sectionTitle(w, "SITES // 站点健康");
   w.addSpacer(4);
-  const maxSites = data.oauth ? 4 : 7;
+  const maxSites = data.oauth ? 3 : 7;
   for (const s of data.sites.slice(0, maxSites)) {
     const row = w.addStack();
     row.centerAlignContent();
@@ -595,6 +607,61 @@ function renderLarge(w, data, time) {
       rs.textColor = C.dim;
     }
   }
+}
+function renderAccessory(w, family, data) {
+  w.setPadding(0, 0, 0, 0);
+  const cost = money(data.today_cost);
+  const numericCost = Number(data.today_cost) || 0;
+  const circularCost = numericCost >= 1e3 ? `${(numericCost / 1e3).toFixed(numericCost >= 1e4 ? 0 : 1)}K` : cost;
+  if (family === "accessoryInline") {
+    const text = w.addText(
+      `今日 $${cost} · 成功率 ${data.success_rate}%`
+    );
+    text.font = Font.semiboldSystemFont(12);
+    text.textColor = ACCESSORY_COLOR;
+    text.lineLimit = 1;
+    text.minimumScaleFactor = 0.68;
+    return;
+  }
+  if (family === "accessoryCircular") {
+    w.addSpacer();
+    const label = w.addText("今日");
+    label.font = Font.mediumSystemFont(9);
+    label.textColor = ACCESSORY_SECONDARY;
+    label.centerAlignText();
+    const value = w.addText(`$${circularCost}`);
+    value.font = Font.boldRoundedSystemFont(circularCost.length > 5 ? 11 : 15);
+    value.textColor = ACCESSORY_COLOR;
+    value.lineLimit = 1;
+    value.minimumScaleFactor = 0.65;
+    value.centerAlignText();
+    w.addSpacer();
+    return;
+  }
+  w.setPadding(3, 7, 3, 7);
+  const header = w.addStack();
+  header.centerAlignContent();
+  const brand = header.addText("XLYRA · 今日费用");
+  brand.font = Font.semiboldSystemFont(10);
+  brand.textColor = ACCESSORY_SECONDARY;
+  header.addSpacer();
+  const health = header.addText(`成功率 ${data.success_rate}%`);
+  health.font = Font.mediumSystemFont(9);
+  health.textColor = ACCESSORY_SECONDARY;
+  w.addSpacer(3);
+  const amount = w.addText(`$${cost}`);
+  amount.font = Font.boldRoundedSystemFont(16);
+  amount.textColor = ACCESSORY_COLOR;
+  amount.lineLimit = 1;
+  amount.minimumScaleFactor = 0.68;
+  w.addSpacer(2);
+  const summary = w.addText(
+    `${compact(data.today_tokens)} TOK · ${data.today_success_requests ?? 0} 请求 · ${data.sites_online}/${data.sites_total} 站点`
+  );
+  summary.font = Font.mediumSystemFont(8);
+  summary.textColor = ACCESSORY_SECONDARY;
+  summary.lineLimit = 1;
+  summary.minimumScaleFactor = 0.7;
 }
 function loadAuth() {
   if (CONFIG.baseURL && CONFIG.adminToken) return { baseURL: CONFIG.baseURL, adminToken: CONFIG.adminToken };
@@ -772,41 +839,64 @@ async function createWidget(family = config.widgetFamily || "small") {
     data = { configured: true, error: String(e) };
   }
   const w = new ListWidget();
-  w.setPadding(16, 14, 16, 14);
+  const isAccessory = ACCESSORY_FAMILIES.includes(family);
   attachMenuURL(w);
-  w.backgroundColor = C.bg;
-  w.backgroundImage = dotGrid(family);
+  if (!isAccessory) {
+    w.setPadding(family === "small" ? 14 : 16, 14, family === "small" ? 14 : 16, 14);
+    w.backgroundColor = C.bg;
+    w.backgroundImage = dotGrid(family);
+  }
   const now = /* @__PURE__ */ new Date();
   const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
   if (!data.configured) {
-    const t1 = w.addText("▪ XLYRA");
+    if (isAccessory) w.setPadding(4, 6, 4, 6);
+    const missingText = family === "accessoryCircular" ? "未配置" : "XLYRA · 未配置";
+    const t1 = w.addText(isAccessory ? missingText : "▪ XLYRA");
     t1.font = MONO_B;
-    t1.textColor = C.fg;
-    w.addSpacer(8);
-    const t2 = w.addText("NOT CONFIGURED");
-    t2.font = MONO_B;
-    t2.textColor = C.amber;
-    w.addSpacer(4);
-    const t3 = w.addText("在 Scriptable 中运行脚本\n完成凭证配置");
-    t3.font = MONO_SM;
-    t3.textColor = C.dim;
+    t1.textColor = isAccessory ? ACCESSORY_COLOR : C.fg;
+    if (isAccessory) {
+      t1.lineLimit = 1;
+      t1.minimumScaleFactor = 0.65;
+      if (family === "accessoryCircular") t1.centerAlignText();
+    }
+    if (!isAccessory) {
+      w.addSpacer(8);
+      const t2 = w.addText("NOT CONFIGURED");
+      t2.font = MONO_B;
+      t2.textColor = C.amber;
+      w.addSpacer(4);
+      const t3 = w.addText("在 Scriptable 中运行脚本\n完成凭证配置");
+      t3.font = MONO_SM;
+      t3.textColor = C.dim;
+    }
   } else if (data.error) {
-    const t1 = w.addText("▪ XLYRA // ERROR");
+    if (isAccessory) w.setPadding(4, 6, 4, 6);
+    const errorText = family === "accessoryCircular" ? "异常" : "XLYRA · 数据异常";
+    const t1 = w.addText(isAccessory ? errorText : "▪ XLYRA // ERROR");
     t1.font = MONO_B;
-    t1.textColor = C.red;
-    w.addSpacer(8);
-    const t2 = w.addText(trunc(data.error, 60));
-    t2.font = MONO_SM;
-    t2.textColor = C.dim;
-    w.addSpacer();
-    const t3 = w.addText(time);
-    t3.font = MONO_SM;
-    t3.textColor = C.dim;
+    t1.textColor = isAccessory ? ACCESSORY_COLOR : C.red;
+    if (isAccessory) {
+      t1.lineLimit = 1;
+      t1.minimumScaleFactor = 0.65;
+      if (family === "accessoryCircular") t1.centerAlignText();
+    }
+    if (!isAccessory) {
+      w.addSpacer(8);
+      const t2 = w.addText(trunc(data.error, 60));
+      t2.font = MONO_SM;
+      t2.textColor = C.dim;
+      w.addSpacer();
+      const t3 = w.addText(time);
+      t3.font = MONO_SM;
+      t3.textColor = C.dim;
+    }
   } else {
-    if (family === "medium") renderMedium(w, data, time);
+    if (isAccessory) renderAccessory(w, family, data);
+    else if (family === "medium") renderMedium(w, data, time);
     else if (family === "large") renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1e3);
   return w;
 }
 if (shouldShowWidgetMenu()) {
@@ -822,6 +912,7 @@ if (shouldShowWidgetMenu()) {
         message: "数据看板与凭证管理",
         version: CONFIG.version,
         updater,
+        previewFamilies: PREVIEW_FAMILIES,
         actions: [{ id: "setup", title: "重新配置凭证" }]
       });
       if (!menu) break;

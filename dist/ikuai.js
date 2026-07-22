@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.2.0
+// @version 1.3.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -194,7 +194,7 @@ var runWidgetMenu = async ({
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.2.0",
+  version: "1.3.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -637,6 +637,21 @@ var collectMetrics = (sysstat) => {
     uptime
   };
 };
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var PREVIEW_FAMILIES = ["small", "medium", "large", ...ACCESSORY_FAMILIES];
+var ACCESSORY_COLOR = Color.dynamic(new Color("#111111"), new Color("#FFFFFF"));
+var ACCESSORY_SECONDARY = Color.dynamic(
+  new Color("#111111", 0.62),
+  new Color("#FFFFFF", 0.68)
+);
+var ACCESSORY_TRACK = Color.dynamic(
+  new Color("#111111", 0.28),
+  new Color("#FFFFFF", 0.3)
+);
 var collectWanMetrics = (response) => {
   const data = getRouterData(response);
   const snapshots = Array.isArray(data?.snapshoot_wan) ? data.snapshoot_wan : [];
@@ -662,12 +677,14 @@ var drawBarImage = (progress, colorHex) => {
   ctx.addPath(track);
   ctx.setFillColor(new Color(COLORS.ringTrack));
   ctx.fillPath();
-  const width = Math.max(8, Math.round(120 * Math.min(1, Math.max(0, progress))));
-  const fill = new Path();
-  fill.addRoundedRect(new Rect(0, 0, width, 8), 4, 4);
-  ctx.addPath(fill);
-  ctx.setFillColor(new Color(colorHex));
-  ctx.fillPath();
+  const width = Math.round(120 * Math.min(1, Math.max(0, progress)));
+  if (width > 0) {
+    const fill = new Path();
+    fill.addRoundedRect(new Rect(0, 0, width, 8), 4, 4);
+    ctx.addPath(fill);
+    ctx.setFillColor(new Color(colorHex));
+    ctx.fillPath();
+  }
   return ctx.getImage();
 };
 var addHDivider = (stack) => {
@@ -925,20 +942,97 @@ var buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
   strip.addSpacer();
   addInfoCell(strip, "更新时间", updatedAt);
 };
+var addAccessoryBar = (parent, value) => {
+  const width = 46;
+  const progress = Math.min(1, Math.max(0, Number(value) / 100));
+  const bar = parent.addStack();
+  bar.size = new Size(width, 3);
+  bar.cornerRadius = 1.5;
+  bar.backgroundColor = ACCESSORY_TRACK;
+  const fillWidth = Math.round(width * progress);
+  if (fillWidth > 0) {
+    const fill = bar.addStack();
+    fill.size = new Size(fillWidth, 3);
+    fill.cornerRadius = 1.5;
+    fill.backgroundColor = ACCESSORY_COLOR;
+  }
+  bar.addSpacer();
+};
+var buildAccessoryLayout = (widget, family, metrics) => {
+  widget.setPadding(0, 0, 0, 0);
+  const down = splitRate(metrics.rateDown);
+  const up = splitRate(metrics.rateUp);
+  if (family === "accessoryInline") {
+    const text = widget.addText(
+      `↓${down.value}${down.unit} · ↑${up.value}${up.unit} · CPU ${metrics.cpu}%`
+    );
+    text.font = Font.semiboldSystemFont(12);
+    text.textColor = ACCESSORY_COLOR;
+    text.lineLimit = 1;
+    text.minimumScaleFactor = 0.68;
+    return;
+  }
+  if (family === "accessoryCircular") {
+    widget.addSpacer();
+    const label = widget.addText("CPU");
+    label.font = Font.mediumSystemFont(9);
+    label.textColor = ACCESSORY_SECONDARY;
+    label.centerAlignText();
+    const value = widget.addText(`${metrics.cpu}%`);
+    value.font = Font.boldRoundedSystemFont(15);
+    value.textColor = ACCESSORY_COLOR;
+    value.lineLimit = 1;
+    value.minimumScaleFactor = 0.65;
+    value.centerAlignText();
+    widget.addSpacer();
+    return;
+  }
+  widget.setPadding(5, 7, 5, 7);
+  const header = widget.addStack();
+  header.centerAlignContent();
+  const title = header.addText("爱快 · 在线");
+  title.font = Font.semiboldSystemFont(10);
+  title.textColor = ACCESSORY_COLOR;
+  title.lineLimit = 1;
+  title.minimumScaleFactor = 0.75;
+  header.addSpacer();
+  const load = header.addText(`CPU ${metrics.cpu}% · 内存 ${metrics.mem}%`);
+  load.font = Font.mediumSystemFont(8);
+  load.textColor = ACCESSORY_SECONDARY;
+  load.lineLimit = 1;
+  load.minimumScaleFactor = 0.65;
+  widget.addSpacer(5);
+  const rates = widget.addStack();
+  const downText = rates.addText(`↓ ${down.value} ${down.unit}`);
+  downText.font = Font.semiboldRoundedSystemFont(13);
+  downText.textColor = ACCESSORY_COLOR;
+  rates.addSpacer();
+  const upText = rates.addText(`↑ ${up.value} ${up.unit}`);
+  upText.font = Font.semiboldRoundedSystemFont(13);
+  upText.textColor = ACCESSORY_COLOR;
+  widget.addSpacer(5);
+  const bars = widget.addStack();
+  addAccessoryBar(bars, metrics.cpu);
+  bars.addSpacer(8);
+  addAccessoryBar(bars, metrics.mem);
+};
 async function createWidget(info, family = config.widgetFamily || "medium") {
   const widget = new ListWidget();
-  const gradient = new LinearGradient();
-  gradient.colors = [new Color(COLORS.bgTop), new Color(COLORS.bgBottom)];
-  gradient.locations = [0, 1];
-  gradient.startPoint = new Point(0, 0);
-  gradient.endPoint = new Point(0, 1);
-  widget.backgroundGradient = gradient;
-  if (family === "small") {
-    widget.setPadding(13, 14, 11, 14);
-  } else if (family === "large") {
-    widget.setPadding(16, 18, 14, 18);
-  } else {
-    widget.setPadding(13, 16, 12, 16);
+  const isAccessory = ACCESSORY_FAMILIES.includes(family);
+  if (!isAccessory) {
+    const gradient = new LinearGradient();
+    gradient.colors = [new Color(COLORS.bgTop), new Color(COLORS.bgBottom)];
+    gradient.locations = [0, 1];
+    gradient.startPoint = new Point(0, 0);
+    gradient.endPoint = new Point(0, 1);
+    widget.backgroundGradient = gradient;
+    if (family === "small") {
+      widget.setPadding(13, 14, 11, 14);
+    } else if (family === "large") {
+      widget.setPadding(16, 18, 14, 18);
+    } else {
+      widget.setPadding(13, 16, 12, 16);
+    }
   }
   try {
     const myRouter = new iKuai(info.host, info.port, false);
@@ -959,7 +1053,7 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
       ...collectMetrics(stats),
       ...collectWanMetrics(wanResponse)
     };
-    const logo = await new Request(LOGO_URL).loadImage();
+    const logo = isAccessory ? null : await new Request(LOGO_URL).loadImage();
     let rings = null;
     if (family === "large") {
       const ringSize = 90;
@@ -985,7 +1079,10 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
     const now = /* @__PURE__ */ new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const updatedAt = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    if (family === "small") {
+    if (isAccessory) {
+      buildAccessoryLayout(widget, family, metrics);
+      widget.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1e3);
+    } else if (family === "small") {
       buildSmallLayout(widget, metrics, logo);
     } else if (family === "large") {
       buildLargeLayout(widget, metrics, logo, rings, updatedAt);
@@ -993,13 +1090,18 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
       buildMediumLayout(widget, metrics, logo, updatedAt);
     }
   } catch (error) {
-    const failure = widget.addText("获取数据失败");
+    if (isAccessory) widget.setPadding(4, 6, 4, 6);
+    const accessoryFailure = family === "accessoryCircular" ? "!" : "爱快数据加载失败";
+    const failure = widget.addText(isAccessory ? accessoryFailure : "获取数据失败");
     failure.font = Font.mediumSystemFont(12);
-    failure.textColor = new Color(COLORS.mem);
-    const message = widget.addText(error.message || "未知错误");
-    message.font = Font.systemFont(10);
-    message.textColor = new Color(COLORS.muted);
-    message.minimumScaleFactor = 0.65;
+    failure.textColor = isAccessory ? ACCESSORY_COLOR : new Color(COLORS.mem);
+    if (family === "accessoryCircular") failure.centerAlignText();
+    if (!isAccessory) {
+      const message = widget.addText(error.message || "未知错误");
+      message.font = Font.systemFont(10);
+      message.textColor = new Color(COLORS.muted);
+      message.minimumScaleFactor = 0.65;
+    }
     console.log(error);
   }
   return attachMenuURL(widget);
@@ -1008,8 +1110,9 @@ if (shouldShowWidgetMenu()) {
   for (; ; ) {
     const action = await runWidgetMenu({
       title: "爱快路由器",
-      version: "1.2.0",
+      version: "1.3.0",
       updater,
+      previewFamilies: PREVIEW_FAMILIES,
       actions: [
         {
           id: "settings",

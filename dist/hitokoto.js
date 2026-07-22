@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: green; icon-glyph: magic;
 // @script-id hitokoto
-// @version 1.0.2
+// @version 1.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -47,9 +47,9 @@ var createUpdater = ({
     const now = Math.floor(Date.now() / 1e3);
     if (!force && now - lastCheckedAt < checkInterval) return null;
     Keychain.set(checkedAtKey, String(now));
-    const request2 = new Request(`${updateURL}?t=${Date.now()}`);
-    request2.timeoutInterval = 10;
-    const source = await request2.loadString();
+    const request = new Request(`${updateURL}?t=${Date.now()}`);
+    request.timeoutInterval = 10;
+    const source = await request.loadString();
     const metadata = readMetadata(source);
     if (metadata.scriptId !== scriptId) {
       throw new Error(`更新文件标识不匹配：${metadata.scriptId || "missing"}`);
@@ -194,24 +194,111 @@ var runWidgetMenu = async ({
 // src/widgets/hitokoto.js
 var updater = createUpdater({
   scriptId: "hitokoto",
-  version: "1.0.2",
+  version: "1.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/hitokoto.js"
 });
 await updater.autoUpdate();
-var request = new Request("https://v1.hitokoto.cn/?c=d&encode=text");
-var createWidget = async () => {
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var PREVIEW_FAMILIES = ["small", "medium", "large", ...ACCESSORY_FAMILIES];
+var COLORS = {
+  text: Color.dynamic(new Color("#24211D"), new Color("#F4F0E8")),
+  muted: Color.dynamic(new Color("#777069"), new Color("#AAA39A")),
+  accent: Color.dynamic(new Color("#A44A3F"), new Color("#E58C7D"))
+};
+var ACCESSORY_COLOR = Color.dynamic(new Color("#111111"), new Color("#FFFFFF"));
+var loadQuote = async () => {
+  try {
+    const request = new Request("https://v1.hitokoto.cn/?c=d&encode=text");
+    request.timeoutInterval = 8;
+    const quote = (await request.loadString()).trim();
+    return quote || "心有山海，静而不争。";
+  } catch {
+    return "慢一点，也是在向前走。";
+  }
+};
+var addAccessory = (widget, family, quote) => {
+  widget.setPadding(0, 0, 0, 0);
+  if (family === "accessoryInline") {
+    const text2 = widget.addText(`“${quote}”`);
+    text2.font = Font.mediumSystemFont(12);
+    text2.textColor = ACCESSORY_COLOR;
+    text2.lineLimit = 1;
+    text2.minimumScaleFactor = 0.72;
+    return;
+  }
+  if (family === "accessoryCircular") {
+    widget.addSpacer();
+    const icon = widget.addImage(SFSymbol.named("quote.opening").image);
+    icon.imageSize = new Size(20, 16);
+    icon.tintColor = ACCESSORY_COLOR;
+    icon.centerAlignImage();
+    const text2 = widget.addText(quote.slice(0, 4));
+    text2.font = Font.semiboldSystemFont(10);
+    text2.textColor = ACCESSORY_COLOR;
+    text2.lineLimit = 1;
+    text2.centerAlignText();
+    widget.addSpacer();
+    return;
+  }
+  const text = widget.addText(`“${quote}`);
+  text.font = Font.semiboldSystemFont(12);
+  text.textColor = ACCESSORY_COLOR;
+  text.lineLimit = 2;
+  text.minimumScaleFactor = 0.75;
+};
+var addMain = (widget, family, quote) => {
+  const gradient = new LinearGradient();
+  gradient.colors = [
+    Color.dynamic(new Color("#FBF6EC"), new Color("#211E1B")),
+    Color.dynamic(new Color("#F0E4D2"), new Color("#302824"))
+  ];
+  gradient.locations = [0, 1];
+  gradient.startPoint = new Point(0, 0);
+  gradient.endPoint = new Point(1, 1);
+  widget.backgroundGradient = gradient;
+  widget.setPadding(family === "small" ? 14 : 18, family === "small" ? 14 : 20, 14, family === "small" ? 14 : 20);
+  const header = widget.addStack();
+  header.centerAlignContent();
+  const icon = header.addImage(SFSymbol.named("quote.bubble.fill").image);
+  icon.imageSize = new Size(14, 14);
+  icon.tintColor = COLORS.accent;
+  header.addSpacer(6);
+  const label = header.addText("一言");
+  label.font = Font.semiboldSystemFont(11);
+  label.textColor = COLORS.muted;
+  widget.addSpacer();
+  const text = widget.addText(quote);
+  text.font = Font.semiboldSystemFont(family === "large" ? 28 : family === "medium" ? 22 : 19);
+  text.textColor = COLORS.text;
+  text.lineLimit = family === "small" ? 4 : family === "medium" ? 3 : 6;
+  text.minimumScaleFactor = 0.58;
+  if (family !== "medium") text.centerAlignText();
+  widget.addSpacer();
+  if (family === "large") {
+    const footer = widget.addText("HITOKOTO · 此刻的一句话");
+    footer.font = Font.mediumSystemFont(10);
+    footer.textColor = COLORS.muted;
+    footer.centerAlignText();
+  }
+};
+var createWidget = async (family = config.widgetFamily || "small") => {
   const widget = new ListWidget();
-  const textWidget = widget.addText("loading...");
-  textWidget.centerAlignText();
-  textWidget.font = Font.systemFont(24);
-  textWidget.text = await request.loadString();
+  const quote = await loadQuote();
+  if (ACCESSORY_FAMILIES.includes(family)) addAccessory(widget, family, quote);
+  else addMain(widget, family, quote);
+  widget.refreshAfterDate = new Date(Date.now() + 30 * 60 * 1e3);
   return attachMenuURL(widget);
 };
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "一言",
-    version: "1.0.2",
-    updater
+    version: "1.1.0",
+    updater,
+    previewFamilies: PREVIEW_FAMILIES
   });
   if (menu?.action === "preview") {
     await presentWidgetPreviews(createWidget, menu.families);
