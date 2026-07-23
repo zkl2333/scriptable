@@ -1,89 +1,53 @@
 # Scriptable Widgets
 
-我自用的 [Scriptable](https://scriptable.app/) 桌面小组件脚本集合。
+[![Build](https://github.com/zkl2333/scriptable/actions/workflows/build.yml/badge.svg)](https://github.com/zkl2333/scriptable/actions/workflows/build.yml)
 
-| 脚本 | 用途 |
-| --- | --- |
-| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板(Admin Token:请求/成本/站点健康/Key/模型 TOP3) |
-| [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态(在线设备、流量) |
-| [`time-progress.js`](./dist/time-progress.js) | 今日时间进度条 |
-| [`work-helper.js`](./dist/work-helper.js) | 工作日历助手(上下班与下一假期倒计时) |
-| [`hitokoto.js`](./dist/hitokoto.js) | 一言(每日一句) |
-| [`milk-tea-reminder.js`](./dist/milk-tea-reminder.js) | 提醒喝奶茶小助手 |
+一组为 iPhone 与 iPad 主屏幕设计的 [Scriptable](https://scriptable.app/) 小组件：把常用状态、时间进度、工作安排和轻量提醒放到抬眼就能看到的地方。每个脚本都是可独立安装的单文件，首次安装后可从 GitHub 自动更新。
 
----
+## 组件
 
-## xlyra.js
+| 组件 | 适用场景 | 支持尺寸 |
+| --- | --- | --- |
+| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；首次运行需配置 Admin Token | 小 / 中 / 大 / 锁屏 |
+| [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态：在线设备与实时流量 | 小 / 中 / 大 / 锁屏 |
+| [`work-helper.js`](./dist/work-helper.js) | 工作日历：上下班倒计时、工作进度与下一假期 | 小 / 中 / 大 / 锁屏 |
+| [`time-progress.js`](./dist/time-progress.js) | 时间进度：今日、本周、本月与今年的可视化进度 | 小 / 中 / 大 / 锁屏 |
+| [`hitokoto.js`](./dist/hitokoto.js) | 一言：每日一句，失败时仍有本地文案兜底 | 小 / 中 / 大 / 锁屏 |
+| [`milk-tea-reminder.js`](./dist/milk-tea-reminder.js) | 奶茶提醒：按时段变化的轻量提醒，可在 App 内发送通知 | 小 / 中 / 大 / 锁屏 |
 
-xLyra 桌面看板(**Admin Token 版**),风格为「彭博终端 × 点阵 LED × 粗野主义」:点阵网格底纹、四角刻度线、LED 点阵发光大数字(5×7 自绘字库,灭灯位保留暗点)、`SITES // 站点健康` 式双语标题、直角硬边框,深浅色自适应。
-支持 **Small / Medium / Large** 三种尺寸,内容自适应:没有 Codex OAuth 账号就完全不显示 OAuth 区块。
+> 锁屏组件包含行内、圆形和矩形三种样式；具体展示内容会随尺寸自动调整。
 
-数据来源(均需 `xlyra-admin-…` 前缀的 Admin Token):
+## 安装
 
-`dashboard/epaper-summary` · `health/sites` · `api-keys` · `requests`(今日失败数) · `dashboard/usage`(按站点今日成本)
+1. 在 iPhone 或 iPad 安装 [Scriptable](https://apps.apple.com/app/scriptable/id1405459188)。
+2. 打开所需组件的 [`dist/`](./dist) 文件，将全部内容复制到 Scriptable 新建脚本中；脚本名建议与文件名一致。
+3. 在 Scriptable 中运行一次。需要凭证的组件会引导完成配置。
+4. 长按主屏幕，添加 Scriptable 小组件，在 **Edit Widget** 中选择对应脚本。
 
-### 展示内容
+首次安装必须手动完成；此后组件会每 24 小时检查 GitHub Raw 上的新版。也可以在 Scriptable App 内运行脚本，使用菜单预览尺寸、检查更新，或进入该组件的配置操作。
 
-| 尺寸 | 内容 |
-| --- | --- |
-| Small  | 品牌行 `XLYRA // 控制台` · LED 点阵今日费用 · 累计费用/今日 tokens · 请求数 · 成功率 · 站点健康 · Key 数 · TOP1 模型成本 |
-| Medium | 左列:品牌行 + LED 点阵今日费用 + 累计/今日 tokens;右列 2×2 指标格:请求 · 成功率 · 站点 · KEY |
-| Large  | 品牌行 + 状态芯片(站点/KEY/RPM)· LED 点阵今日费用 + 累计注记<br>4 指标格:请求 · 成功率 · RPM · TPM<br>`SITES // 站点健康`(在线/停用/离线 + 延迟 + 今日成本)<br>`COST TOP3 // 今日模型`<br>`OAUTH // 账号`(仅当存在 Codex OAuth 账号:5h/周剩余额度 + 重置时间) |
+## 设计与安全
 
-自适应规则:Codex OAuth 账号数为 0 时,OAuth 区块整体不渲染;无站点健康数据或无模型成本时,对应区块同样隐藏。
+- 所有发布脚本均为单文件，不依赖运行时 `import`，可直接在 Scriptable 使用。
+- 组件提供深浅色适配，并支持主屏幕和锁屏组件尺寸。
+- iKuai 与 xLyra 等敏感配置保存于 iOS Keychain，不会写入仓库或随脚本源码公开；xLyra 仅在凭证验证成功后保存配置。
+- 更新前会将当前脚本备份到 Scriptable 本地 Library；网络或更新异常不会影响已有组件运行。
 
-> 数据层已实测对齐 xLyra(2026-07):`epaper-summary` 为扁平结构(`kpis.*` / `model_top3_today` / `codex_quota`),成功率 = 今日成功 ÷ (成功+失败),失败数单独查 `requests?success=false`;usage 失败不影响核心数据渲染。
+## 开发
 
-### 安装与配置
-
-1. 将 `dist/xlyra.js` 复制到 iCloud Drive 的 `Scriptable/` 目录(或在 Scriptable App 内新建脚本粘贴内容)。
-2. 在 Scriptable App 内**运行一次**脚本:依次输入后端地址(如 `https://ai-api.example.com`)和 Admin Token,脚本会发起一次真实请求验证,验证通过才写入 iOS Keychain。
-3. 在桌面添加 Scriptable 小组件,长按选择 **Edit Widget**,**Script** 选 `xlyra` 即可,无需填 Parameter。
-4. 之后**在 App 内运行脚本会弹出菜单**:预览组件 / 重新配置凭证 / 检查更新;桌面组件后台刷新只渲染,不弹菜单。
-
-> Admin Token 在 xLyra 控制台的 **个人资料 → Access Token** 中创建。
-
-### 自动更新
-
-`dist/` 中的全部组件都内置同一套自动更新逻辑:
-
-1. 每 24 小时从 GitHub Raw 检查对应的 `dist/*.js`。
-2. 校验 `@script-id` 和 `@version` 后覆盖当前脚本,新版本在下次刷新时生效。
-3. 更新前会在本地 Library 的 `widget-update-backups/` 保存最近一份备份。
-4. 网络或更新失败不会影响组件继续使用当前版本。
-5. xLyra 仍可在 App 内通过「检查更新」手动检查。
-
-- 更新目标使用 Scriptable 官方的 `module.filename`,可准确覆盖当前本地或 iCloud 脚本。
-- 更新只覆盖当前 `.js` 文件,Keychain 里的凭证不受影响。
-- 版本、脚本 ID 和 Raw URL 统一维护在 `scripts/build.mjs`。
-- 首次安装仍需手动把脚本放进 Scriptable,之后就可以全自动了。
-- 注意 GitHub Raw 有 CDN 缓存,push 后几分钟内手机可能还拉到旧版,属正常现象。
-
-### App 内菜单
-
-桌面组件点击后会重新运行当前脚本，在 Scriptable App 内打开菜单；后台刷新仍只渲染，不弹窗。全部组件都有“预览组件”和“检查更新”；选择预览后可选小、中、大或全部尺寸。爱快额外提供路由器配置，奶茶提醒额外提供发送通知，xLyra 保留凭证配置。
-
-### 开发与发布
+需要 Node.js 22 或更高版本。
 
 ```powershell
 npm ci
 npm run check
 ```
 
-- `src/widgets/`:组件源码。
-- `src/lib/`:构建期共享模块，包含 updater 和 App 内菜单。
-- `dist/`:可直接安装到 Scriptable 的单文件产物,需要提交到 Git。
-- GitHub Raw 直接使用主分支的 `dist/`,日常更新不需要 GitHub Release。
-- Release 仅用于需要按版本下载整包或长期归档时,可从已提交的 `dist/` 附加生成。
-- GitHub Actions 会重新构建并检查 `dist/` 是否与源码一致。
+- `src/widgets/`：组件入口。
+- `src/lib/`：自动更新器与 App 内菜单等共享模块。
+- `dist/`：可直接安装的生成产物，提交时必须与源码一并更新。
 
-### 安全说明
+`npm run check` 会执行更新器和菜单模拟测试、重新构建全部组件，并校验生成脚本语法。GitHub Actions 也会验证 `dist/` 是否仍与源码一致。
 
-- 真实 `baseURL` 和 `adminToken` 只存在于 **iOS Keychain**,不会随 iCloud Drive 的 `.js` 文件同步出去。
-- 脚本源码可以放心 `git push` 到公开仓库。
+## 贡献
 
----
-
-## ikuai.js
-
-iKuai 软路由的桌面监控,首次运行会弹框输入 `用户名:密码@host:port`,凭证存 Keychain。
+欢迎提交 issue 或 Pull Request。修改组件、共享模块、元数据或版本后，请执行 `npm run check` 并提交相应的 `dist/` 文件；请勿提交 Token、路由器凭证、私有地址或缓存数据。
