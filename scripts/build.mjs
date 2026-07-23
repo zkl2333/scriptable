@@ -10,7 +10,7 @@ const rawBaseURL = 'https://raw.githubusercontent.com/zkl2333/scriptable/main/di
 
 const widgets = [
   { name: 'hitokoto', version: '1.2.0', iconColor: 'green', iconGlyph: 'magic' },
-  { name: 'ikuai', version: '1.4.0', iconColor: 'blue', iconGlyph: 'network-wired' },
+  { name: 'ikuai', version: '1.4.1', iconColor: 'blue', iconGlyph: 'network-wired' },
   {
     name: 'milk-tea-reminder',
     version: '1.2.0',

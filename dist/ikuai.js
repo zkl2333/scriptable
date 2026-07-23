@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.4.0
+// @version 1.4.1
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -258,7 +258,7 @@ var runWidgetMenu = async ({
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.4.0",
+  version: "1.4.1",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -473,6 +473,7 @@ var iKuai = class {
     let url = `${this.protocol}://${this.host}:${this.port}/Action/login`;
     try {
       let request = new Request(url);
+      request.timeoutInterval = 8;
       request.method = "POST";
       request.headers = { "Content-Type": "application/json" };
       request.body = JSON.stringify(login_info);
@@ -500,6 +501,7 @@ var iKuai = class {
     let url = `${this.protocol}://${this.host}:${this.port}/Action/call`;
     try {
       let request = new Request(url);
+      request.timeoutInterval = 8;
       request.method = "POST";
       request.headers = {
         "Content-Type": "application/json;charset=UTF-8",
@@ -554,6 +556,26 @@ var getRouterError = (response) => {
   const code = response?.code ?? response?.Result ?? response?.result ?? "未知响应";
   const message = response?.ErrMsg || response?.Message || response?.message;
   return message ? `接口错误 ${code}: ${message}` : `接口错误 ${code}: 未返回系统状态`;
+};
+var isPrivateHost = (host) => {
+  const value = String(host || "").trim().toLowerCase();
+  return /^(10|127)\.(\d{1,3}\.){2}\d{1,3}$/.test(value) || /^192\.168\.(\d{1,3}\.)\d{1,3}$/.test(value) || /^172\.(1[6-9]|2\d|3[0-1])\.(\d{1,3}\.)\d{1,3}$/.test(value) || value === "localhost" || value.endsWith(".local");
+};
+var isConnectionError = (error) => {
+  const message = String(error?.message || error || "").toLowerCase();
+  return /timed out|timeout|network|connection|not connected|无法连接|连接|超时|找不到主机|could not connect|socket/.test(message);
+};
+var getDisplayError = (error, host) => {
+  if (!isConnectionError(error)) {
+    return {
+      title: "爱快数据加载失败",
+      detail: String(error?.message || error || "未知错误")
+    };
+  }
+  return {
+    title: "路由器暂不可达",
+    detail: isPrivateHost(host) ? "当前不在家庭网络，请连接内网 Wi‑Fi 后重试" : "请检查地址、端口或网络连接后重试"
+  };
 };
 var getRouterData = (response) => {
   if (response?.code === 0) return response.results;
@@ -782,10 +804,12 @@ var addArrowIcon = (row, symbolName, colorHex, size = new Size(9, 11)) => {
 var buildHeader = (widget, logo, uptimeText, { compact = false, updatedAt = null } = {}) => {
   const row = widget.addStack();
   row.centerAlignContent();
-  const logoImg = row.addImage(logo);
-  const logoSize = compact ? 13 : 16;
-  logoImg.imageSize = new Size(logoSize, logoSize);
-  row.addSpacer(5);
+  if (logo) {
+    const logoImg = row.addImage(logo);
+    const logoSize = compact ? 13 : 16;
+    logoImg.imageSize = new Size(logoSize, logoSize);
+    row.addSpacer(5);
+  }
   const title = row.addText("爱快");
   title.font = Font.semiboldSystemFont(compact ? 12 : 13);
   title.textColor = new Color(COLORS.text);
@@ -801,9 +825,10 @@ var buildHeader = (widget, logo, uptimeText, { compact = false, updatedAt = null
   uptime.lineLimit = 1;
   uptime.minimumScaleFactor = 0.75;
 };
-var addRateCell = (parent, label, symbolName, rateBytes, colorHex, { valueFont = 15, detail = null } = {}) => {
+var addRateCell = (parent, label, symbolName, rateBytes, colorHex, { valueFont = 15, detail = null, width = 82 } = {}) => {
   const cell = parent.addStack();
   cell.layoutVertically();
+  cell.size = new Size(width, 0);
   const head = cell.addStack();
   head.centerAlignContent();
   addArrowIcon(head, symbolName, colorHex);
@@ -835,6 +860,7 @@ var addRateCell = (parent, label, symbolName, rateBytes, colorHex, { valueFont =
 var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
   const cell = parent.addStack();
   cell.layoutVertically();
+  cell.size = new Size(barWidth, 0);
   const labelText = cell.addText(label);
   labelText.font = Font.mediumSystemFont(9);
   labelText.textColor = new Color(COLORS.muted);
@@ -855,6 +881,7 @@ var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
 var addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
   const row = parent.addStack();
   row.centerAlignContent();
+  row.size = new Size(116, 0);
   const labelText = row.addText(label);
   labelText.font = Font.mediumSystemFont(9);
   labelText.textColor = new Color(COLORS.muted);
@@ -869,6 +896,7 @@ var addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
 var addInfoCell = (parent, label, value) => {
   const cell = parent.addStack();
   cell.layoutVertically();
+  cell.size = new Size(72, 0);
   const labelText = cell.addText(label);
   labelText.font = Font.mediumSystemFont(9);
   labelText.textColor = new Color(COLORS.muted);
@@ -906,11 +934,19 @@ var buildSmallLayout = (widget, metrics, logo) => {
   buildHeader(widget, logo, metrics.uptime, { compact: true });
   widget.addSpacer(12);
   const rates = widget.addStack();
-  addRateCell(rates, "下行", "arrow.down", metrics.rateDown, COLORS.down);
+  rates.size = new Size(126, 0);
+  addRateCell(rates, "下行", "arrow.down", metrics.rateDown, COLORS.down, {
+    valueFont: 14,
+    width: 58
+  });
   rates.addSpacer();
-  addRateCell(rates, "上行", "arrow.up", metrics.rateUp, COLORS.up);
+  addRateCell(rates, "上行", "arrow.up", metrics.rateUp, COLORS.up, {
+    valueFont: 14,
+    width: 58
+  });
   widget.addSpacer(12);
   const gauges = widget.addStack();
+  gauges.size = new Size(126, 0);
   addGaugeCell(gauges, "CPU", metrics.cpu, COLORS.cpu);
   gauges.addSpacer();
   addGaugeCell(gauges, "内存", metrics.mem, COLORS.mem);
@@ -965,11 +1001,13 @@ var buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
   const rates = widget.addStack();
   addRateCell(rates, "实时下行", "arrow.down", metrics.rateDown, COLORS.down, {
     valueFont: 24,
+    width: 130,
     detail: `累计 ${formatBytes(metrics.totalDown)}`
   });
   rates.addSpacer();
   addRateCell(rates, "实时上行", "arrow.up", metrics.rateUp, COLORS.up, {
     valueFont: 24,
+    width: 130,
     detail: `累计 ${formatBytes(metrics.totalUp)}`
   });
   widget.addSpacer(16);
@@ -1086,6 +1124,50 @@ var buildAccessoryLayout = (widget, family, metrics) => {
   bars.addSpacer(8);
   addAccessoryBar(bars, metrics.mem);
 };
+var buildFailureLayout = (widget, family, displayError) => {
+  const isAccessory = ACCESSORY_FAMILIES.includes(family);
+  if (isAccessory) {
+    widget.setPadding(4, 6, 4, 6);
+    const message = family === "accessoryCircular" ? "!" : family === "accessoryInline" ? "爱快不可达" : "路由器不可达";
+    const text = widget.addText(message);
+    text.font = Font.semiboldSystemFont(family === "accessoryCircular" ? 18 : 11);
+    text.textColor = ACCESSORY_COLOR;
+    text.lineLimit = 1;
+    text.minimumScaleFactor = 0.7;
+    if (family === "accessoryCircular") text.centerAlignText();
+    return;
+  }
+  widget.addSpacer();
+  const status = widget.addStack();
+  status.centerAlignContent();
+  status.addSpacer();
+  const symbol = SFSymbol.named("wifi.exclamationmark");
+  if (symbol) {
+    const icon = status.addImage(symbol.image);
+    icon.imageSize = new Size(16, 14);
+    icon.imageColor = new Color(COLORS.mem);
+    status.addSpacer(6);
+  }
+  const title = status.addText(displayError.title);
+  title.font = Font.semiboldSystemFont(family === "small" ? 13 : 15);
+  title.textColor = new Color(COLORS.text);
+  status.addSpacer();
+  widget.addSpacer(8);
+  const detail = widget.addText(displayError.detail);
+  detail.font = Font.systemFont(10);
+  detail.textColor = new Color(COLORS.muted);
+  detail.centerAlignText();
+  detail.lineLimit = 2;
+  detail.minimumScaleFactor = 0.72;
+  if (family !== "small") {
+    widget.addSpacer(7);
+    const recovery = widget.addText("回到内网后将自动恢复");
+    recovery.font = Font.mediumSystemFont(9);
+    recovery.textColor = new Color(COLORS.muted);
+    recovery.centerAlignText();
+  }
+  widget.addSpacer();
+};
 async function createWidget(info, family = config.widgetFamily || "medium") {
   const widget = new ListWidget();
   const isAccessory = ACCESSORY_FAMILIES.includes(family);
@@ -1124,7 +1206,16 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
       ...collectMetrics(stats),
       ...collectWanMetrics(wanResponse)
     };
-    const logo = isAccessory ? null : await new Request(LOGO_URL).loadImage();
+    let logo = null;
+    if (!isAccessory) {
+      try {
+        const logoRequest = new Request(LOGO_URL);
+        logoRequest.timeoutInterval = 4;
+        logo = await logoRequest.loadImage();
+      } catch (logoError) {
+        console.log(`爱快 Logo 加载失败，使用文字标题: ${logoError.message || logoError}`);
+      }
+    }
     let rings = null;
     if (isLarge) {
       const ringSize = 90;
@@ -1161,18 +1252,9 @@ async function createWidget(info, family = config.widgetFamily || "medium") {
       buildMediumLayout(widget, metrics, logo, updatedAt);
     }
   } catch (error) {
-    if (isAccessory) widget.setPadding(4, 6, 4, 6);
-    const accessoryFailure = family === "accessoryCircular" ? "!" : "爱快数据加载失败";
-    const failure = widget.addText(isAccessory ? accessoryFailure : "获取数据失败");
-    failure.font = Font.mediumSystemFont(12);
-    failure.textColor = isAccessory ? ACCESSORY_COLOR : new Color(COLORS.mem);
-    if (family === "accessoryCircular") failure.centerAlignText();
-    if (!isAccessory) {
-      const message = widget.addText(error.message || "未知错误");
-      message.font = Font.systemFont(10);
-      message.textColor = new Color(COLORS.muted);
-      message.minimumScaleFactor = 0.65;
-    }
+    const displayError = getDisplayError(error, info.host);
+    buildFailureLayout(widget, family, displayError);
+    widget.refreshAfterDate = new Date(Date.now() + 2 * 60 * 1e3);
     console.log(error);
   }
   return attachMenuURL(widget);
@@ -1181,7 +1263,7 @@ if (shouldShowWidgetMenu()) {
   for (; ; ) {
     const action = await runWidgetMenu({
       title: "爱快路由器",
-      version: "1.4.0",
+      version: "1.4.1",
       updater,
       previewFamilies: PREVIEW_FAMILIES,
       actions: [
