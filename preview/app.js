@@ -130,7 +130,11 @@
       const widget = stage.querySelector('.sp-widget');
       if (!shell || !widget) return;
       const inset = stage.classList.contains('preview-stage--focus') ? 64 : 34;
-      const maximum = stage.classList.contains('preview-stage--focus') ? 1.82 : 0.9;
+      const maximum = stage.classList.contains('preview-stage--focus')
+        ? 1.82
+        : family.group === 'accessory'
+          ? 1
+          : 0.9;
       const scale = core.calculatePreviewScale(
         familyId,
         stage.clientWidth - inset,

@@ -100,6 +100,16 @@ assert.match(xlyraBody, />3\/7</);
 
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);
+assert.deepEqual(
+  core.families
+    .filter(({ group }) => group === 'accessory')
+    .map(({ id, width, height }) => ({ id, width, height })),
+  [
+    { id: 'accessoryInline', width: 160, height: 26 },
+    { id: 'accessoryCircular', width: 76, height: 76 },
+    { id: 'accessoryRectangular', width: 172, height: 76 },
+  ]
+);
 assert.throws(() => core.getFamily('unknown'), /未知预览尺寸/);
 assert.throws(() => engine.update({ widgetId: 'unknown' }), /未知组件/);
 assert.throws(
