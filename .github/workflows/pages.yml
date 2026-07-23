@@ -28,6 +28,8 @@ jobs:
       - name: Verify committed artifacts
         run: git diff --exit-code -- dist
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Assemble Pages artifact
         run: |
           mkdir -p .pages
