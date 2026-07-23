@@ -274,10 +274,10 @@ var LED_FONT = {
   B: ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
   " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."]
 };
-function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
+function ledImage(text, { dot = 2, gap = 1, pad = 2, chr = dot + gap } = {}) {
   const glyphs = [...String(text)].map((ch) => LED_FONT[ch] || LED_FONT[" "]);
-  const cw = 5 * (dot + gap);
-  const w = Math.ceil(glyphs.length * cw - gap + pad * 2);
+  const cw = 5 * dot + 4 * gap + chr;
+  const w = Math.ceil(glyphs.length * cw - chr + pad * 2);
   const h = Math.ceil(7 * (dot + gap) - gap + pad * 2);
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);

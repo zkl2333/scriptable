@@ -135,10 +135,11 @@ const LED_FONT = {
 };
 
 // 把文本渲染成 LED 点阵图(灭灯位保留暗点, 像真数码管)
-function ledImage(text, { dot = 2, gap = 1, pad = 2 } = {}) {
+// chr 为字符间隔(默认一个点距单元), 避免相邻数字粘连
+function ledImage(text, { dot = 2, gap = 1, pad = 2, chr = dot + gap } = {}) {
   const glyphs = [...String(text)].map((ch) => LED_FONT[ch] || LED_FONT[" "]);
-  const cw = 5 * (dot + gap);
-  const w = Math.ceil(glyphs.length * cw - gap + pad * 2);
+  const cw = 5 * dot + 4 * gap + chr;
+  const w = Math.ceil(glyphs.length * cw - chr + pad * 2);
   const h = Math.ceil(7 * (dot + gap) - gap + pad * 2);
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
