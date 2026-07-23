@@ -409,11 +409,11 @@ const addAccessoryRectangular = (widget, phase, countdown) => {
   const prefix = main.addText(phase === 'working' ? '还剩 ' : '距上班 ');
   prefix.font = Font.mediumSystemFont(11);
   prefix.textColor = ACCESSORY_SECONDARY;
-  const date = main.addDate(countdown.date);
-  date.font = Font.semiboldRoundedSystemFont(17);
-  date.textColor = ACCESSORY_FOREGROUND;
-  date.applyRelativeStyle();
-  date.minimumScaleFactor = 0.72;
+  const duration = main.addText(formatCompactDuration(countdown.date));
+  duration.font = Font.semiboldRoundedSystemFont(16);
+  duration.textColor = ACCESSORY_FOREGROUND;
+  duration.lineLimit = 1;
+  duration.minimumScaleFactor = 0.8;
 
   if (phase === 'working') {
     main.addSpacer();

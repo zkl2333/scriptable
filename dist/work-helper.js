@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: teal; icon-glyph: magic;
 // @script-id work-helper
-// @version 2.1.1
+// @version 2.1.2
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -194,7 +194,7 @@ var runWidgetMenu = async ({
 // src/widgets/work-helper.js
 var updater = createUpdater({
   scriptId: "work-helper",
-  version: "2.1.1",
+  version: "2.1.2",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/work-helper.js"
 });
 await updater.autoUpdate();
@@ -531,11 +531,11 @@ var addAccessoryRectangular = (widget, phase, countdown) => {
   const prefix = main.addText(phase === "working" ? "还剩 " : "距上班 ");
   prefix.font = Font.mediumSystemFont(11);
   prefix.textColor = ACCESSORY_SECONDARY;
-  const date = main.addDate(countdown.date);
-  date.font = Font.semiboldRoundedSystemFont(17);
-  date.textColor = ACCESSORY_FOREGROUND;
-  date.applyRelativeStyle();
-  date.minimumScaleFactor = 0.72;
+  const duration = main.addText(formatCompactDuration(countdown.date));
+  duration.font = Font.semiboldRoundedSystemFont(16);
+  duration.textColor = ACCESSORY_FOREGROUND;
+  duration.lineLimit = 1;
+  duration.minimumScaleFactor = 0.8;
   if (phase === "working") {
     main.addSpacer();
     const percent = main.addText(`${Math.round(progress * 100)}%`);
@@ -764,7 +764,7 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "下班助手",
-    version: "2.1.1",
+    version: "2.1.2",
     updater,
     previewFamilies: PREVIEW_FAMILIES
   });
