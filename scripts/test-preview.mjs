@@ -80,6 +80,24 @@ for (const widget of widgets) {
   }
 }
 
+const xlyraWidget = widgets.find(({ id }) => id === 'xlyra');
+const xlyraSource = await readFile(new URL('../dist/xlyra.js', import.meta.url), 'utf8');
+const xlyraTree = await runtime.executeSource({
+  source: xlyraSource,
+  scriptId: xlyraWidget.id,
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+});
+const xlyraBody = runtime.renderWidgetTree(xlyraTree, { now: fixedNow });
+assert.match(
+  xlyraBody,
+  /class="sp-node sp-stack sp-vertical" style="[^"]*flex:1 1 0/,
+  '含弹性 Spacer 的横向子 Stack 应占据父级剩余空间'
+);
+assert.match(xlyraBody, /\$430\.79/);
+assert.match(xlyraBody, />3\/7</);
+
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);
 assert.throws(() => core.getFamily('unknown'), /未知预览尺寸/);

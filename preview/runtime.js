@@ -203,18 +203,26 @@
     return `<span class="sp-node sp-spacer" style="${style}"></span>`;
   };
 
-  const renderContainer = (node, now, root = false) => {
+  const containsFlexibleSpacer = (node) => (node.children || []).some((child) =>
+    child.kind === 'spacer' && !Number.isFinite(child.length)
+      ? true
+      : child.kind === 'stack' && containsFlexibleSpacer(child)
+  );
+
+  const renderContainer = (node, now, root = false, parentDirection = null) => {
     const direction = node.direction || (root ? 'vertical' : 'horizontal');
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
     const background = gradientToCSS(node.backgroundGradient) || colorToCSS(node.backgroundColor);
+    const flexChild = !root && node.kind === 'stack' && parentDirection === 'horizontal' &&
+      !width && !height && containsFlexibleSpacer(node);
     const style = styleText({
       flexDirection: direction === 'vertical' ? 'column' : 'row',
       alignItems: node.contentAlignment || 'stretch',
       padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
       width: root ? '100%' : width,
       height: root ? '100%' : height,
-      flex: !root && node.size && !width && !height ? '1 1 0' : null,
+      flex: flexChild || (!root && node.size && !width && !height) ? '1 1 0' : null,
       flexShrink: width || height ? 0 : null,
       gap: Number.isFinite(node.spacing) ? `${node.spacing}px` : null,
       background,
@@ -226,7 +234,7 @@
       ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background')}</span>`
       : '';
     const children = node.children.map((child) => {
-      if (child.kind === 'stack') return renderContainer(child, now);
+      if (child.kind === 'stack') return renderContainer(child, now, false, direction);
       if (child.kind === 'text' || child.kind === 'date') return renderTextNode(child, now);
       if (child.kind === 'image') return renderImageNode(child);
       if (child.kind === 'spacer') return renderSpacer(child, direction);
@@ -291,16 +299,16 @@
           date: now.toISOString().slice(0, 10),
           kpis: {
             today_cost: 12.84,
-            total_cost: 284.17,
-            today_tokens: 3820000,
-            today_requests: 1286,
-            rpm_used: 26,
-            tpm_used: 4800,
+            total_cost: 5140.59,
+            today_tokens: 224400000,
+            today_requests: 2237,
+            rpm_used: 1,
+            tpm_used: 605000,
           },
           model_top3_today: [
-            { model_key: 'claude-sonnet-4', cost: 6.28 },
-            { model_key: 'gpt-5', cost: 4.91 },
-            { model_key: 'gemini-2.5-pro', cost: 1.65 },
+            { model_key: 'gpt-5.6-sol', cost: 430.79 },
+            { model_key: 'gpt-5.6-terra', cost: 11.33 },
+            { model_key: 'gpt-5.6-luna', cost: 0.6883 },
           ],
           codex_quota: { account_count: 0 },
         };
@@ -308,29 +316,30 @@
       if (url.includes('/health/sites')) {
         return {
           items: [
-            ['api-prod', 42],
-            ['gateway', 68],
-            ['edge-tokyo', 91],
-            ['codex', 56],
-            ['claude', 73],
-            ['gemini', 88],
-          ].map(([name, latency], index) => ({
+            ['api-prod', 42, 'healthy'],
+            ['gateway', 68, 'healthy'],
+            ['edge-tokyo', 91, 'healthy'],
+            ['codex', 0, 'offline'],
+            ['claude', 0, 'offline'],
+            ['gemini', 0, 'offline'],
+            ['vertex', 0, 'offline'],
+          ].map(([name, latency, status], index) => ({
             site: { id: index + 1, name, enabled: true },
-            health: { status: 'healthy', recent_avg_latency_ms: latency },
+            health: { status, recent_avg_latency_ms: latency },
           })),
         };
       }
       if (url.includes('/api-keys')) {
-        return { items: Array.from({ length: 4 }, (_, index) => ({ id: index + 1, status: 'active' })) };
+        return { items: Array.from({ length: 6 }, (_, index) => ({ id: index + 1, status: 'active' })) };
       }
-      if (url.includes('/requests?')) return { meta: { total: 3 } };
+      if (url.includes('/requests?')) return { meta: { total: 74 } };
       if (url.includes('/dashboard/usage')) {
         return {
           charts: {
-            daily_site_cost: Array.from({ length: 6 }, (_, index) => ({
+            daily_site_cost: Array.from({ length: 7 }, (_, index) => ({
               date: now.toISOString().slice(0, 10),
               site_id: index + 1,
-              cost: [3.12, 2.7, 2.14, 1.92, 1.68, 1.28][index],
+              cost: [3.12, 2.7, 2.14, 1.92, 1.68, 1.28, 0.96][index],
             })),
           },
         };

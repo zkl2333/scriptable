@@ -29,7 +29,7 @@
       mode: search.get('mode'),
       widgetId: search.get('widget'),
       family: search.get('family'),
-      appearance: getStoredAppearance(),
+      appearance: search.get('appearance') || getStoredAppearance(),
     },
   });
 
@@ -130,7 +130,7 @@
       const widget = stage.querySelector('.sp-widget');
       if (!shell || !widget) return;
       const inset = stage.classList.contains('preview-stage--focus') ? 64 : 34;
-      const maximum = stage.classList.contains('preview-stage--focus') ? 1.35 : 0.9;
+      const maximum = stage.classList.contains('preview-stage--focus') ? 1.82 : 0.9;
       const scale = core.calculatePreviewScale(
         familyId,
         stage.clientWidth - inset,
