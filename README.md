@@ -40,13 +40,18 @@
 ```powershell
 npm ci
 npm run check
+npm run dev:web
 ```
 
 - `src/widgets/`：组件入口。
 - `src/lib/`：自动更新器与 App 内菜单等共享模块。
 - `dist/`：可直接安装的生成产物，提交时必须与源码一并更新。
+- `web/`：独立构建的浏览器预览器；产物位于被忽略的 `web/.preview-assets/`，不会进入 `dist/`。
+- [`docs/web-widget-preview-plan.md`](./docs/web-widget-preview-plan.md)：Scriptable Web 小组件布局与预览实施计划。
 
-`npm run check` 会执行更新器和菜单模拟测试、重新构建全部组件，并校验生成脚本语法。GitHub Actions 也会验证 `dist/` 是否仍与源码一致。
+`npm run dev:web` 会启动本地工作台，默认使用 `http://localhost:4173`（端口被占用时顺延）。目前它用于验证 Scriptable 布局 API、Canvas 输出和六种 family；真实组件源码的受限 bundle 与业务 fixture 尚未接入。
+
+`npm run check` 会执行更新器、菜单和 Web 运行时测试，构建 Web 预览器、重新构建全部组件，并校验生成脚本语法。GitHub Actions 也会验证 `dist/` 是否仍与源码一致。
 
 ## 贡献
 
