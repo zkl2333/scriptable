@@ -39,7 +39,11 @@
 
 ### 浏览器预览
 
-运行 `npm run preview`，再访问 `http://127.0.0.1:4175`。页面支持总览与单组件模式、7 种主屏及锁屏尺寸和明暗外观。`preview/core.js` 是不依赖页面 DOM 和具体组件的独立预览核心；`preview/runtime.js` 提供浏览器版 Scriptable API，直接执行 `dist/*.js` 并把真实 `ListWidget` 树转换成 DOM。`preview/widgets.js` 只保留组件目录元数据，不再重复维护组件布局。
+[在线预览全部组件](https://zkl2333.github.io/scriptable/preview/)
+
+![Scriptable 组件总览](./image/preview/overview.png)
+
+本地运行 `npm run preview`，再访问 `http://127.0.0.1:4175`。页面支持总览与单组件模式、7 种主屏及锁屏尺寸和明暗外观。`preview/core.js` 是不依赖页面 DOM 和具体组件的独立预览核心；`preview/runtime.js` 提供浏览器版 Scriptable API，直接执行 `dist/*.js` 并把真实 `ListWidget` 树转换成 DOM。`preview/widgets.js` 只保留组件目录元数据，不再重复维护组件布局。
 
 ```powershell
 npm ci
