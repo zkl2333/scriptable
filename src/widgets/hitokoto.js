@@ -18,7 +18,13 @@ const ACCESSORY_FAMILIES = [
   'accessoryCircular',
   'accessoryRectangular',
 ];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  ...ACCESSORY_FAMILIES,
+];
 const COLORS = {
   text: Color.dynamic(new Color('#24211D'), new Color('#F4F0E8')),
   muted: Color.dynamic(new Color('#777069'), new Color('#AAA39A')),
@@ -94,14 +100,15 @@ const addMain = (widget, family, quote) => {
 
   widget.addSpacer();
   const text = widget.addText(quote);
-  text.font = Font.semiboldSystemFont(family === 'large' ? 28 : family === 'medium' ? 22 : 19);
+  const isLarge = family === 'large' || family === 'extraLarge';
+  text.font = Font.semiboldSystemFont(isLarge ? 28 : family === 'medium' ? 22 : 19);
   text.textColor = COLORS.text;
   text.lineLimit = family === 'small' ? 4 : family === 'medium' ? 3 : 6;
   text.minimumScaleFactor = 0.58;
   if (family !== 'medium') text.centerAlignText();
   widget.addSpacer();
 
-  if (family === 'large') {
+  if (isLarge) {
     const footer = widget.addText('HITOKOTO · 此刻的一句话');
     footer.font = Font.mediumSystemFont(10);
     footer.textColor = COLORS.muted;

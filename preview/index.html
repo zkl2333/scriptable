@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>Scriptable Preview Lab</title>
+    <link rel="icon" href="../image/ikuai64.ico">
+    <link rel="stylesheet" href="styles.css">
+    <script src="core.js" defer></script>
+    <script src="runtime.js" defer></script>
+    <script src="widgets.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand" aria-label="Scriptable Preview Lab">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <div><b>SCRIPTABLE</b><span>PREVIEW LAB</span></div>
+        </div>
+
+        <div class="view-switch segmented-control" aria-label="预览模式">
+          <button type="button" data-mode="overview">总览</button>
+          <button type="button" data-mode="focus">单组件</button>
+        </div>
+
+        <div class="header-actions">
+          <span class="build-status"><i></i> 6 WIDGETS</span>
+          <button class="icon-button" id="refresh-button" type="button" title="刷新动态数据" aria-label="刷新动态数据">↻</button>
+          <button class="icon-button" id="theme-button" type="button" title="切换明暗外观" aria-label="切换明暗外观">◐</button>
+        </div>
+      </header>
+
+      <div class="content-grid">
+        <aside class="catalog" aria-label="组件列表">
+          <div class="catalog-heading"><span>COMPONENTS</span><b id="widget-count">06</b></div>
+          <nav id="catalog-list"></nav>
+          <div class="catalog-foot"><span>LOCAL</span><span>ES2022</span></div>
+        </aside>
+
+        <main class="workspace">
+          <div class="workspace-toolbar">
+            <div class="family-switcher" id="family-switcher" role="group" aria-label="组件尺寸"></div>
+            <div class="dimension-readout" id="dimension-readout" aria-live="polite"></div>
+          </div>
+
+          <section class="preview-viewport" id="preview-viewport" aria-live="polite"></section>
+        </main>
+      </div>
+    </div>
+    <noscript>此预览页需要启用 JavaScript。</noscript>
+  </body>
+</html>

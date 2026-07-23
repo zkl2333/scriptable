@@ -3,12 +3,14 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve-preview.mjs",
     "build:web": "node scripts/build-web.mjs",
     "dev:web": "node scripts/dev-web.mjs",
+    "test:preview": "node scripts/test-preview.mjs",
     "test:web": "node web/tests/runtime.mjs",
     "test:updater": "node scripts/test-updater.mjs",
     "test:widget-menu": "node scripts/test-widget-menu.mjs",
-    "check": "npm run test:updater && npm run test:widget-menu && npm run test:web && npm run build:web && npm run build && node --check dist/hitokoto.js && node --check dist/ikuai.js && node --check dist/milk-tea-reminder.js && node --check dist/time-progress.js && node --check dist/work-helper.js && node --check dist/xlyra.js"
+    "check": "npm run test:updater && npm run test:widget-menu && npm run test:preview && npm run test:web && npm run build:web && npm run build && node --check dist/hitokoto.js && node --check dist/ikuai.js && node --check dist/milk-tea-reminder.js && node --check dist/time-progress.js && node --check dist/work-helper.js && node --check dist/xlyra.js"
   },
   "devDependencies": {
     "@types/scriptable-ios": "^1.7.7",

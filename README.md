@@ -37,15 +37,21 @@
 
 需要 Node.js 22 或更高版本。
 
+### 浏览器预览
+
+运行 `npm run preview`，再访问 `http://127.0.0.1:4175`。页面支持总览与单组件模式、7 种主屏及锁屏尺寸和明暗外观。`preview/core.js` 是不依赖页面 DOM 和具体组件的独立预览核心；`preview/runtime.js` 提供浏览器版 Scriptable API，直接执行 `dist/*.js` 并把真实 `ListWidget` 树转换成 DOM。`preview/widgets.js` 只保留组件目录元数据，不再重复维护组件布局。
+
 ```powershell
 npm ci
 npm run check
+npm run preview
 npm run dev:web
 ```
 
 - `src/widgets/`：组件入口。
 - `src/lib/`：自动更新器与 App 内菜单等共享模块。
 - `dist/`：可直接安装的生成产物，提交时必须与源码一并更新。
+- `preview/`：直接执行 `dist/*.js` 的完整组件预览页，核心与浏览器运行时相互独立。
 - `web/`：独立构建的浏览器预览器；产物位于被忽略的 `web/.preview-assets/`，不会进入 `dist/`。
 - [`docs/web-widget-preview-plan.md`](./docs/web-widget-preview-plan.md)：Scriptable Web 小组件布局与预览实施计划。
 

@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: green; icon-glyph: magic;
 // @script-id hitokoto
-// @version 1.1.0
+// @version 1.2.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -126,43 +126,107 @@ var attachMenuURL = (widget) => {
   widget.url = URLScheme.forRunningScript();
   return widget;
 };
-var presentWidget = async (widget, fallbackFamily = "medium") => {
-  const family = fallbackFamily;
-  if (family === "accessoryInline") return widget.presentAccessoryInline();
-  if (family === "accessoryCircular") return widget.presentAccessoryCircular();
-  if (family === "accessoryRectangular") {
-    return widget.presentAccessoryRectangular();
+var PREVIEW_DEFINITIONS = {
+  small: { label: "小尺寸 Small", method: "presentSmall", group: "home" },
+  medium: { label: "中尺寸 Medium", method: "presentMedium", group: "home" },
+  large: { label: "大尺寸 Large", method: "presentLarge", group: "home" },
+  extraLarge: {
+    label: "超大尺寸 Extra Large（iPad）",
+    method: "presentExtraLarge",
+    group: "home"
+  },
+  accessoryInline: {
+    label: "锁屏单行 Inline",
+    method: "presentAccessoryInline",
+    group: "accessory"
+  },
+  accessoryCircular: {
+    label: "锁屏圆形 Circular",
+    method: "presentAccessoryCircular",
+    group: "accessory"
+  },
+  accessoryRectangular: {
+    label: "锁屏矩形 Rectangular",
+    method: "presentAccessoryRectangular",
+    group: "accessory"
   }
-  if (family === "large") return widget.presentLarge();
-  if (family === "small") return widget.presentSmall();
-  return widget.presentMedium();
 };
-var PREVIEW_LABELS = {
-  small: "小尺寸 Small",
-  medium: "中尺寸 Medium",
-  large: "大尺寸 Large",
-  accessoryInline: "锁屏单行 Inline",
-  accessoryCircular: "锁屏圆形 Circular",
-  accessoryRectangular: "锁屏矩形 Rectangular"
+var getPreviewDefinition = (family) => {
+  const definition = PREVIEW_DEFINITIONS[family];
+  if (!definition) throw new RangeError(`不支持的组件尺寸：${family}`);
+  return definition;
 };
-var DEFAULT_PREVIEW_FAMILIES = ["small", "medium", "large"];
+var normalizePreviewFamilies = (families) => {
+  if (!Array.isArray(families)) throw new TypeError("预览尺寸必须是数组");
+  const uniqueFamilies = [...new Set(families)];
+  uniqueFamilies.forEach(getPreviewDefinition);
+  return uniqueFamilies;
+};
+var isPreviewAvailable = (family) => {
+  if (family !== "extraLarge") return true;
+  return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+};
+var presentWidget = async (widget, family = "medium") => {
+  const { method } = getPreviewDefinition(family);
+  if (typeof widget?.[method] !== "function") {
+    throw new TypeError(`当前 Scriptable 不支持 ${family} 预览`);
+  }
+  return widget[method]();
+};
+var DEFAULT_PREVIEW_FAMILIES = ["small", "medium", "large", "extraLarge"];
 var selectPreviewFamilies = async (families) => {
+  const availableFamilies = normalizePreviewFamilies(families).filter(isPreviewAvailable);
+  if (availableFamilies.length === 0) {
+    await showMessage("无法预览", "当前设备不支持此组件提供的尺寸。");
+    return null;
+  }
+  const choices = availableFamilies.map((family) => ({
+    label: getPreviewDefinition(family).label,
+    families: [family]
+  }));
+  const homeFamilies = availableFamilies.filter(
+    (family) => getPreviewDefinition(family).group === "home"
+  );
+  const accessoryFamilies = availableFamilies.filter(
+    (family) => getPreviewDefinition(family).group === "accessory"
+  );
+  if (homeFamilies.length > 0 && accessoryFamilies.length > 0) {
+    choices.push(
+      { label: "全部主屏 Home Screen", families: homeFamilies },
+      { label: "全部锁屏 Lock Screen", families: accessoryFamilies }
+    );
+  }
+  if (availableFamilies.length > 1) {
+    choices.push({ label: "全部尺寸 All", families: availableFamilies });
+  }
   const alert = new Alert();
   alert.title = "预览组件";
-  alert.message = "测试组件在各种尺寸下的显示效果";
-  families.forEach((family) => alert.addAction(PREVIEW_LABELS[family] || family));
-  alert.addAction("全部 All");
+  alert.message = "选择一个尺寸，或按类别连续预览";
+  choices.forEach((choice) => alert.addAction(choice.label));
   alert.addCancelAction("取消操作");
   const index = await alert.presentSheet();
-  if (index < 0) return null;
-  if (index < families.length) return [families[index]];
-  if (index === families.length) return families;
-  return null;
+  return choices[index]?.families || null;
 };
 var presentWidgetPreviews = async (createWidget2, families) => {
-  for (const family of families) {
-    await presentWidget(await createWidget2(family), family);
+  const previewFamilies = normalizePreviewFamilies(families);
+  const presented = [];
+  const failures = [];
+  for (const family of previewFamilies) {
+    try {
+      await presentWidget(await createWidget2(family), family);
+      presented.push(family);
+    } catch (error) {
+      failures.push({ family, error });
+    }
   }
+  if (failures.length > 0) {
+    const message = failures.map(({ family, error }) => `${getPreviewDefinition(family).label}：${String(error)}`).join("\n");
+    await showMessage(
+      failures.length === previewFamilies.length ? "预览失败" : "部分预览失败",
+      message
+    );
+  }
+  return { presented, failures };
 };
 var runWidgetMenu = async ({
   title,
@@ -194,7 +258,7 @@ var runWidgetMenu = async ({
 // src/widgets/hitokoto.js
 var updater = createUpdater({
   scriptId: "hitokoto",
-  version: "1.1.0",
+  version: "1.2.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/hitokoto.js"
 });
 await updater.autoUpdate();
@@ -203,7 +267,13 @@ var ACCESSORY_FAMILIES = [
   "accessoryCircular",
   "accessoryRectangular"
 ];
-var PREVIEW_FAMILIES = ["small", "medium", "large", ...ACCESSORY_FAMILIES];
+var PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  ...ACCESSORY_FAMILIES
+];
 var COLORS = {
   text: Color.dynamic(new Color("#24211D"), new Color("#F4F0E8")),
   muted: Color.dynamic(new Color("#777069"), new Color("#AAA39A")),
@@ -272,13 +342,14 @@ var addMain = (widget, family, quote) => {
   label.textColor = COLORS.muted;
   widget.addSpacer();
   const text = widget.addText(quote);
-  text.font = Font.semiboldSystemFont(family === "large" ? 28 : family === "medium" ? 22 : 19);
+  const isLarge = family === "large" || family === "extraLarge";
+  text.font = Font.semiboldSystemFont(isLarge ? 28 : family === "medium" ? 22 : 19);
   text.textColor = COLORS.text;
   text.lineLimit = family === "small" ? 4 : family === "medium" ? 3 : 6;
   text.minimumScaleFactor = 0.58;
   if (family !== "medium") text.centerAlignText();
   widget.addSpacer();
-  if (family === "large") {
+  if (isLarge) {
     const footer = widget.addText("HITOKOTO · 此刻的一句话");
     footer.font = Font.mediumSystemFont(10);
     footer.textColor = COLORS.muted;
@@ -296,7 +367,7 @@ var createWidget = async (family = config.widgetFamily || "small") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "一言",
-    version: "1.1.0",
+    version: "1.2.0",
     updater,
     previewFamilies: PREVIEW_FAMILIES
   });

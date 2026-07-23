@@ -82,7 +82,13 @@ const ACCESSORY_FAMILIES = [
   'accessoryCircular',
   'accessoryRectangular',
 ];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  ...ACCESSORY_FAMILIES,
+];
 const ACCESSORY_COLOR = Color.dynamic(new Color('#111111'), new Color('#FFFFFF'));
 const ACCESSORY_SECONDARY = Color.dynamic(
   new Color('#111111', 0.62),
@@ -879,7 +885,7 @@ async function createWidget(family = config.widgetFamily || "small") {
   } else {
     if (isAccessory) renderAccessory(w, family, data);
     else if (family === "medium") renderMedium(w, data, time);
-    else if (family === "large") renderLarge(w, data, time);
+    else if (family === "large" || family === 'extraLarge') renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
 

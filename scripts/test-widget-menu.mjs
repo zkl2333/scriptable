@@ -13,6 +13,7 @@ globalThis.Font = {
   systemFont: (size) => `system-${size}`,
 };
 globalThis.Script = { name: () => 'Test Widget' };
+globalThis.Device = { isPad: () => false };
 globalThis.Alert = class {
   constructor() {
     this.actions = [];
@@ -36,7 +37,9 @@ globalThis.Alert = class {
   }
 };
 
-const { presentWidget, runWidgetMenu } = await import('../src/lib/widget-menu.js');
+const { presentWidget, presentWidgetPreviews, runWidgetMenu } = await import(
+  '../src/lib/widget-menu.js'
+);
 
 const updater = {
   checkForUpdate: async () => null,
@@ -59,6 +62,7 @@ assert.deepEqual(
       'small',
       'medium',
       'large',
+      'extraLarge',
       'accessoryInline',
       'accessoryCircular',
       'accessoryRectangular',
@@ -66,15 +70,100 @@ assert.deepEqual(
   }),
   { action: 'preview', families: ['accessoryRectangular'] }
 );
+assert.equal(alerts.at(-1).actions.includes('超大尺寸 Extra Large（iPad）'), false);
+
+Device.isPad = () => true;
+sheetSelections.push(0, 7);
+assert.deepEqual(
+  await runWidgetMenu({
+    title: '测试',
+    version: '1.0.0',
+    updater,
+    previewFamilies: [
+      'small',
+      'medium',
+      'large',
+      'extraLarge',
+      'accessoryInline',
+      'accessoryCircular',
+      'accessoryRectangular',
+    ],
+  }),
+  { action: 'preview', families: ['small', 'medium', 'large', 'extraLarge'] }
+);
+assert.equal(alerts.at(-1).actions.at(-3), '全部主屏 Home Screen');
+
+sheetSelections.push(0, 8);
+assert.deepEqual(
+  await runWidgetMenu({
+    title: '测试',
+    version: '1.0.0',
+    updater,
+    previewFamilies: [
+      'small',
+      'medium',
+      'large',
+      'extraLarge',
+      'accessoryInline',
+      'accessoryCircular',
+      'accessoryRectangular',
+    ],
+  }),
+  {
+    action: 'preview',
+    families: ['accessoryInline', 'accessoryCircular', 'accessoryRectangular'],
+  }
+);
+Device.isPad = () => false;
 
 const previewCalls = [];
-await presentWidget(
-  {
-    presentAccessoryRectangular: async () => previewCalls.push('rectangular'),
+const previewWidget = {
+  presentSmall: async () => previewCalls.push('small'),
+  presentMedium: async () => previewCalls.push('medium'),
+  presentLarge: async () => previewCalls.push('large'),
+  presentExtraLarge: async () => previewCalls.push('extraLarge'),
+  presentAccessoryInline: async () => previewCalls.push('accessoryInline'),
+  presentAccessoryCircular: async () => previewCalls.push('accessoryCircular'),
+  presentAccessoryRectangular: async () => previewCalls.push('accessoryRectangular'),
+};
+for (const family of [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  'accessoryInline',
+  'accessoryCircular',
+  'accessoryRectangular',
+]) {
+  await presentWidget(previewWidget, family);
+}
+assert.deepEqual(previewCalls, [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  'accessoryInline',
+  'accessoryCircular',
+  'accessoryRectangular',
+]);
+await assert.rejects(() => presentWidget(previewWidget, 'unsupported'), /不支持的组件尺寸/);
+
+const attemptedFamilies = [];
+const previewResult = await presentWidgetPreviews(
+  async (family) => {
+    attemptedFamilies.push(family);
+    if (family === 'medium') throw new Error('render failed');
+    return previewWidget;
   },
-  'accessoryRectangular'
+  ['small', 'medium', 'medium', 'large']
 );
-assert.deepEqual(previewCalls, ['rectangular']);
+assert.deepEqual(attemptedFamilies, ['small', 'medium', 'large']);
+assert.deepEqual(previewResult.presented, ['small', 'large']);
+assert.deepEqual(
+  previewResult.failures.map(({ family }) => family),
+  ['medium']
+);
+assert.equal(alerts.at(-1).title, '部分预览失败');
 
 sheetSelections.push(1);
 assert.deepEqual(

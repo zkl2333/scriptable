@@ -18,7 +18,13 @@ const ACCESSORY_FAMILIES = [
   'accessoryCircular',
   'accessoryRectangular',
 ];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  ...ACCESSORY_FAMILIES,
+];
 const COLORS = {
   brown: Color.dynamic(new Color('#613C2D'), new Color('#F1D0B8')),
   caramel: Color.dynamic(new Color('#B8612D'), new Color('#F3A66F')),
@@ -90,7 +96,8 @@ const addMain = (widget, family, message) => {
 
   widget.addSpacer();
   const title = widget.addText(message.title);
-  title.font = Font.boldRoundedSystemFont(family === 'large' ? 32 : family === 'medium' ? 26 : 24);
+  const isLarge = family === 'large' || family === 'extraLarge';
+  title.font = Font.boldRoundedSystemFont(isLarge ? 32 : family === 'medium' ? 26 : 24);
   title.textColor = COLORS.brown;
   title.minimumScaleFactor = 0.7;
   const detail = widget.addText(message.detail);
@@ -113,7 +120,7 @@ const addMain = (widget, family, message) => {
       if (index < 2) choices.addSpacer(7);
     }
   }
-  if (family === 'large') {
+  if (isLarge) {
     widget.addSpacer(12);
     const note = widget.addText('运行脚本即可发送提醒，通知中可直接打开地图或外卖应用。');
     note.font = Font.systemFont(11);

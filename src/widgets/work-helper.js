@@ -220,6 +220,7 @@ const METRICS = {
   small: { hero: 26, barWidth: 118, showHoliday: false },
   medium: { hero: 32, barWidth: 290, showHoliday: true },
   large: { hero: 36, barWidth: 290, showHoliday: true },
+  extraLarge: { hero: 36, barWidth: 290, showHoliday: true },
 };
 
 const ACCESSORY_FAMILIES = [
@@ -232,6 +233,7 @@ const PREVIEW_FAMILIES = [
   'small',
   'medium',
   'large',
+  'extraLarge',
   ...ACCESSORY_FAMILIES,
 ];
 
@@ -645,7 +647,7 @@ const createWidget = async (family = config.widgetFamily || 'medium') => {
       }
     }
 
-    if (widgetFamily === 'large') {
+    if (widgetFamily === 'large' || widgetFamily === 'extraLarge') {
       widget.addSpacer(8);
       const footer = widget.addText(
         `工作时间 ${pad2(WORK_HOURS.start.hour)}:${pad2(WORK_HOURS.start.minute)} – ${pad2(WORK_HOURS.end.hour)}:${pad2(WORK_HOURS.end.minute)}`

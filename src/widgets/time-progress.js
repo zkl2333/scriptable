@@ -18,7 +18,13 @@ const ACCESSORY_FAMILIES = [
   'accessoryCircular',
   'accessoryRectangular',
 ];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  ...ACCESSORY_FAMILIES,
+];
 const COLORS = {
   text: Color.dynamic(new Color('#202124'), new Color('#F3F4F6')),
   muted: Color.dynamic(new Color('#72777F'), new Color('#9DA3AB')),
@@ -142,7 +148,8 @@ const addMain = (widget, family, items) => {
   widget.setPadding(family === 'small' ? 13 : 16, family === 'small' ? 13 : 18, 13, family === 'small' ? 13 : 18);
 
   const title = widget.addText('时间进度');
-  title.font = Font.boldSystemFont(family === 'large' ? 18 : 14);
+  const isLarge = family === 'large' || family === 'extraLarge';
+  title.font = Font.boldSystemFont(isLarge ? 18 : 14);
   title.textColor = COLORS.text;
   const subtitle = widget.addText('把时间看见');
   subtitle.font = Font.mediumSystemFont(10);
@@ -155,7 +162,7 @@ const addMain = (widget, family, items) => {
     if (index < items.length - 1) widget.addSpacer(family === 'small' ? 8 : family === 'medium' ? 7 : 14);
   }
 
-  if (family === 'large') {
+  if (isLarge) {
     widget.addSpacer();
     const note = widget.addText('进度按实际日历长度计算，每 15 分钟自动刷新');
     note.font = Font.systemFont(10);

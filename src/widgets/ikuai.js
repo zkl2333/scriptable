@@ -674,7 +674,13 @@ const ACCESSORY_FAMILIES = [
   'accessoryCircular',
   'accessoryRectangular',
 ];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = [
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  ...ACCESSORY_FAMILIES,
+];
 const ACCESSORY_COLOR = Color.dynamic(new Color('#111111'), new Color('#FFFFFF'));
 const ACCESSORY_SECONDARY = Color.dynamic(
   new Color('#111111', 0.62),
@@ -1158,6 +1164,7 @@ const buildAccessoryLayout = (widget, family, metrics) => {
 async function createWidget(info, family = config.widgetFamily || 'medium') {
   const widget = new ListWidget();
   const isAccessory = ACCESSORY_FAMILIES.includes(family);
+  const isLarge = family === 'large' || family === 'extraLarge';
 
   if (!isAccessory) {
     const gradient = new LinearGradient();
@@ -1169,7 +1176,7 @@ async function createWidget(info, family = config.widgetFamily || 'medium') {
 
     if (family === 'small') {
       widget.setPadding(13, 14, 11, 14);
-    } else if (family === 'large') {
+    } else if (isLarge) {
       widget.setPadding(16, 18, 14, 18);
     } else {
       widget.setPadding(13, 16, 12, 16);
@@ -1202,7 +1209,7 @@ async function createWidget(info, family = config.widgetFamily || 'medium') {
 
     // 环形进度图仅供大尺寸使用，中尺寸用负载条提高空间利用率
     let rings = null;
-    if (family === 'large') {
+    if (isLarge) {
       const ringSize = 90;
       const ringFonts = { fontLarge: 38, fontSmall: 24 };
       const drawRing = (percent, label, colorHex) =>
@@ -1234,7 +1241,7 @@ async function createWidget(info, family = config.widgetFamily || 'medium') {
       widget.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
     } else if (family === "small") {
       buildSmallLayout(widget, metrics, logo);
-    } else if (family === "large") {
+    } else if (isLarge) {
       buildLargeLayout(widget, metrics, logo, rings, updatedAt);
     } else {
       buildMediumLayout(widget, metrics, logo, updatedAt);
