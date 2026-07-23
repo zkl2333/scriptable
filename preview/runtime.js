@@ -44,7 +44,11 @@
     'arrow.down': '↓',
     'arrow.up': '↑',
     'briefcase.fill': '▣',
+    'calendar': '▦',
+    'checkmark.circle.fill': '✓',
+    'circle': '○',
     'cup.and.saucer.fill': '☕',
+    'exclamationmark.circle.fill': '!',
     'exclamationmark.triangle.fill': '⚠',
     'leaf.fill': '❧',
     'moon.stars.fill': '☾',
@@ -622,6 +626,34 @@
       setTriggerDate() {}
       async schedule() {}
     }
+    const atTime = (hour, minute) => {
+      const value = new PreviewDate(executionNow);
+      value.setHours(hour, minute, 0, 0);
+      return value;
+    };
+    const CalendarEvent = {
+      today: async () => [
+        {
+          title: '产品同步会',
+          startDate: atTime(10, 0),
+          endDate: atTime(10, 45),
+          isAllDay: false,
+        },
+        {
+          title: '整理本周发布清单',
+          startDate: atTime(16, 0),
+          endDate: atTime(16, 30),
+          isAllDay: false,
+        },
+      ],
+    };
+    const Reminder = {
+      allIncomplete: async () => [
+        { title: '确认设计稿反馈', dueDate: atTime(11, 30) },
+        { title: '提交周报', dueDate: atTime(18, 0) },
+        { title: '归档会议记录', dueDate: null },
+      ],
+    };
     const Script = {
       name: () => scriptId,
       setWidget: (widget) => { capturedWidget = widget; },
@@ -631,6 +663,7 @@
     const sandbox = {
       Alert,
       Color,
+      CalendarEvent,
       Date: PreviewDate,
       Device: { isUsingDarkAppearance: () => appearance === 'dark' },
       DrawContext,
@@ -643,6 +676,7 @@
       Path,
       Point,
       Rect,
+      Reminder,
       Request,
       SFSymbol,
       Script,

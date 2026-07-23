@@ -24,7 +24,7 @@ assert.deepEqual(
     'accessoryRectangular',
   ]
 );
-assert.equal(new Set(widgets.map(({ id }) => id)).size, 6);
+assert.equal(new Set(widgets.map(({ id }) => id)).size, 7);
 
 const engine = core.createPreviewEngine({ widgets });
 assert.deepEqual(engine.getState(), {
