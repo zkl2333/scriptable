@@ -900,6 +900,8 @@ const addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
 
   const valueRow = cell.addStack();
   valueRow.bottomAlignContent();
+  valueRow.size = new Size(barWidth, 0);
+  valueRow.addSpacer();
   const valueText = valueRow.addText(String(percent));
   valueText.font = Font.semiboldSystemFont(15);
   valueText.textColor = new Color(COLORS.text);
@@ -918,14 +920,17 @@ const addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
 const addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
   const row = parent.addStack();
   row.centerAlignContent();
-  row.size = new Size(116, 0);
+  row.size = new Size(barWidth, 0);
 
   const labelText = row.addText(label);
   labelText.font = Font.mediumSystemFont(9);
   labelText.textColor = new Color(COLORS.muted);
   row.addSpacer();
 
-  const valueText = row.addText(`${percent}%`);
+  const valueArea = row.addStack();
+  valueArea.size = new Size(34, 0);
+  valueArea.addSpacer();
+  const valueText = valueArea.addText(`${percent}%`);
   valueText.font = Font.semiboldSystemFont(11);
   valueText.textColor = new Color(COLORS.text);
 

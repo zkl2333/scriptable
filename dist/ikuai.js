@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: network-wired;
 // @script-id ikuai
-// @version 1.4.1
+// @version 1.4.2
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -258,7 +258,7 @@ var runWidgetMenu = async ({
 // src/widgets/ikuai.js
 var updater = createUpdater({
   scriptId: "ikuai",
-  version: "1.4.1",
+  version: "1.4.2",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/ikuai.js"
 });
 await updater.autoUpdate();
@@ -867,6 +867,8 @@ var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
   cell.addSpacer(3);
   const valueRow = cell.addStack();
   valueRow.bottomAlignContent();
+  valueRow.size = new Size(barWidth, 0);
+  valueRow.addSpacer();
   const valueText = valueRow.addText(String(percent));
   valueText.font = Font.semiboldSystemFont(15);
   valueText.textColor = new Color(COLORS.text);
@@ -881,12 +883,15 @@ var addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
 var addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
   const row = parent.addStack();
   row.centerAlignContent();
-  row.size = new Size(116, 0);
+  row.size = new Size(barWidth, 0);
   const labelText = row.addText(label);
   labelText.font = Font.mediumSystemFont(9);
   labelText.textColor = new Color(COLORS.muted);
   row.addSpacer();
-  const valueText = row.addText(`${percent}%`);
+  const valueArea = row.addStack();
+  valueArea.size = new Size(34, 0);
+  valueArea.addSpacer();
+  const valueText = valueArea.addText(`${percent}%`);
   valueText.font = Font.semiboldSystemFont(11);
   valueText.textColor = new Color(COLORS.text);
   parent.addSpacer(4);
@@ -1263,7 +1268,7 @@ if (shouldShowWidgetMenu()) {
   for (; ; ) {
     const action = await runWidgetMenu({
       title: "爱快路由器",
-      version: "1.4.1",
+      version: "1.4.2",
       updater,
       previewFamilies: PREVIEW_FAMILIES,
       actions: [
