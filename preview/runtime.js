@@ -2,6 +2,9 @@
   'use strict';
 
   const sourceCache = new Map();
+  const symbols = global.ScriptablePreviewSymbols;
+
+  if (!symbols) throw new Error('请先加载 preview/symbols.js');
 
   const escapeHTML = (value) =>
     String(value ?? '')
@@ -39,27 +42,9 @@
     return `rgba(${red},${green},${blue},${alpha})`;
   };
 
-  const symbolGlyphs = Object.freeze({
-    'airplane': '✈',
-    'arrow.down': '↓',
-    'arrow.up': '↑',
-    'briefcase.fill': '▣',
-    'calendar': '▦',
-    'checkmark.circle.fill': '✓',
-    'circle': '○',
-    'cup.and.saucer.fill': '☕',
-    'exclamationmark.circle.fill': '!',
-    'exclamationmark.triangle.fill': '⚠',
-    'leaf.fill': '❧',
-    'moon.stars.fill': '☾',
-    'quote.bubble.fill': '❝',
-    'quote.opening': '❝',
-    'sun.max.fill': '☀',
-    'sunrise.fill': '☀',
-    'sunset.fill': '◒',
-  });
-
-  const symbolGlyph = (name) => symbolGlyphs[name] || '◆';
+  const renderSymbol = (name, attributes = '') =>
+    symbols.render(name, attributes) ||
+    `<span class="sp-symbol-fallback" title="未映射的 SF Symbol：${escapeAttribute(name)}">?</span>`;
 
   const createFont = (size, weight = 400, family = 'system') => ({
     __kind: 'font',
@@ -97,11 +82,11 @@
   };
 
   const renderSymbolSVG = (image, rect, color, font) => {
-    const size = font?.size || Math.min(rect.width, rect.height);
-    return `<text x="${rect.x + rect.width / 2}" y="${rect.y + rect.height / 2}"` +
-      ` fill="${escapeAttribute(color || '#111111')}" font-size="${size}"` +
-      ` font-family="-apple-system,'Segoe UI Symbol',sans-serif" text-anchor="middle"` +
-      ` dominant-baseline="central">${escapeHTML(symbolGlyph(image.name))}</text>`;
+    const body = symbols.icons[image.name];
+    if (!body) return '';
+    return `<svg x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}"` +
+      ` viewBox="0 0 256 256" fill="${escapeAttribute(color || '#111111')}"` +
+      ` preserveAspectRatio="xMidYMid meet">${body}</svg>`;
   };
 
   const renderDrawImage = (image, extraClass = '') => {
@@ -167,7 +152,10 @@
     });
     let content;
     if (image.__kind === 'symbol') {
-      content = `<span class="sp-symbol" aria-hidden="true">${escapeHTML(symbolGlyph(image.name))}</span>`;
+      content = renderSymbol(
+        image.name,
+        `class="sp-symbol-svg" role="img" aria-label="${escapeAttribute(image.name)}"`
+      );
     } else if (image.__kind === 'draw') {
       content = renderDrawImage(image);
     } else if (image.__kind === 'remote') {

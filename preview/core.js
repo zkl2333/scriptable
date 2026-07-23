@@ -175,7 +175,7 @@
 
       const familyClass = family.group === 'accessory' ? ' is-accessory' : '';
       return [
-        `<article class="sp-widget sp-widget--${widget.id} is-${appearance}${familyClass}"`,
+        `<article class="sp-widget is-${appearance}${familyClass}"`,
         ` data-widget-id="${widget.id}" data-family="${family.id}"`,
         ` aria-label="${escapeHTML(widget.name)} ${escapeHTML(family.label)}"`,
         ` style="--widget-width:${family.width}px;--widget-height:${family.height}px">`,

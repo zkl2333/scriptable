@@ -2,15 +2,18 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 await import('../preview/core.js');
+await import('../preview/symbols.js');
 await import('../preview/runtime.js');
 await import('../preview/widgets.js');
 
 const core = globalThis.ScriptablePreviewCore;
 const runtime = globalThis.ScriptablePreviewRuntime;
 const widgets = globalThis.ScriptablePreviewWidgets;
+const previewStyles = await readFile(new URL('../preview/styles.css', import.meta.url), 'utf8');
 
 assert.ok(core);
 assert.ok(runtime);
+assert.ok(globalThis.ScriptablePreviewSymbols);
 assert.equal(core.families.length, 7);
 assert.deepEqual(
   core.families.map(({ id }) => id),
@@ -76,6 +79,7 @@ for (const widget of widgets) {
     });
     assert.match(html, new RegExp(`data-widget-id="${widget.id}"`));
     assert.match(html, new RegExp(`data-family="${family.id}"`));
+    assert.doesNotMatch(html, /sp-widget--/, 'dist 输出不应挂载组件专用样式类');
     assert.doesNotMatch(html, /undefined|NaN/);
   }
 }
@@ -98,8 +102,26 @@ assert.match(
 assert.match(xlyraBody, /\$430\.79/);
 assert.match(xlyraBody, />3\/7</);
 
+const workHelperSource = await readFile(new URL('../dist/work-helper.js', import.meta.url), 'utf8');
+const workHelperTree = await runtime.executeSource({
+  source: workHelperSource,
+  scriptId: 'work-helper',
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+});
+const workHelperBody = runtime.renderWidgetTree(workHelperTree, { now: fixedNow });
+assert.match(workHelperBody, /class="sp-symbol-svg"/);
+assert.match(workHelperBody, /viewBox="0 0 256 256"/);
+assert.doesNotMatch(workHelperBody, /sp-symbol-fallback/);
+
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);
+assert.match(
+  previewStyles,
+  /\.sp-horizontal > \.sp-text \{ align-self: center; white-space: pre; \}/,
+  '横向 Text 节点必须保留脚本中的首尾空格'
+);
 assert.deepEqual(
   core.families
     .filter(({ group }) => group === 'accessory')
