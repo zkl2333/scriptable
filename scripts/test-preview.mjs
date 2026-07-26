@@ -64,9 +64,10 @@ assert.deepEqual(
     'work-helper',
     'xlyra',
     'cyber-clock',
+    'pixel-pet',
   ]
 );
-assert.equal(new Set(widgets.map(({ id }) => id)).size, 11);
+assert.equal(new Set(widgets.map(({ id }) => id)).size, 12);
 
 const engine = core.createPreviewEngine({ widgets });
 assert.deepEqual(engine.getState(), {

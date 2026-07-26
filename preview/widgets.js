@@ -16,6 +16,7 @@
     { id: 'work-helper', name: '下班助手', category: '工作', icon: '✓' },
     { id: 'xlyra', name: 'XLYRA 控制台', category: '监控', icon: '▪' },
     { id: 'cyber-clock', name: '赛博时钟', category: '效率', icon: '⌗' },
+    { id: 'pixel-pet', name: '像素宠物', category: '生活', icon: '♥' },
   ].map((widget) => Object.freeze({
     ...widget,
     sourcePath: `../dist/${widget.id}.js`,
