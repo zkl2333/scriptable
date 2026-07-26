@@ -3,6 +3,7 @@
 
   const core = global.ScriptablePreviewCore;
   const widgets = global.ScriptablePreviewWidgets;
+  const runtime = global.ScriptablePreviewRuntime;
   if (!core || !widgets) throw new Error('预览核心或组件定义加载失败');
 
   const catalogList = document.querySelector('#catalog-list');
@@ -16,6 +17,7 @@
   const refreshButton = document.querySelector('#refresh-button');
   const viewSwitch = document.querySelector('.view-switch');
   let renderSequence = 0;
+  let stopDateTicker = () => {};
 
   widgetCountLabel.textContent = String(widgetCount).padStart(2, '0');
   buildWidgetCountLabel.textContent = `${widgetCount} WIDGETS`;
@@ -188,6 +190,7 @@
     });
     const family = core.getFamily(state.family);
     dimensionReadout.innerHTML = `<b>${family.label}</b><span>${family.width} × ${family.height} PT</span>`;
+    stopDateTicker();
     previewViewport.innerHTML = '<div class="preview-loading"><i></i><span>正在执行 dist 组件…</span></div>';
     try {
       const content = state.mode === 'overview'
@@ -195,6 +198,8 @@
         : await renderFocus(state);
       if (sequence !== renderSequence) return;
       previewViewport.innerHTML = content;
+      // 挂载 relative/offset/timer 日期文本的自动刷新
+      stopDateTicker = runtime?.mountDateTicker?.(previewViewport) || (() => {});
     } catch (error) {
       if (sequence !== renderSequence) return;
       console.error('预览渲染失败', error);

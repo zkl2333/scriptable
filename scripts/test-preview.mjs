@@ -4,11 +4,28 @@ import { readFile } from 'node:fs/promises';
 await import('../preview/core.js');
 await import('../preview/symbols.js');
 await import('../preview/ir.js');
+await import('../preview/measure.js');
+await import('../preview/layout.js');
 await import('../preview/runtime.js');
 await import('../preview/widgets.js');
 
 const core = globalThis.ScriptablePreviewCore;
 const runtime = globalThis.ScriptablePreviewRuntime;
+const measureModule = globalThis.ScriptablePreviewMeasure;
+
+const measurer = measureModule.createMeasurer();
+assert.ok(measurer.isApproximate, 'Node 环境应使用近似测量兜底');
+const asciiWidth = measurer.measure('MONO', { family: 'monospace', size: 10, weight: 400 });
+const cjkWidth = measurer.measure('原生圆体', { family: 'rounded', size: 20, weight: 600 });
+assert.ok(asciiWidth > 0 && cjkWidth > asciiWidth, '测量宽度应为正且随字号/全角增长');
+assert.equal(
+  measurer.measure('MONO', { family: 'monospace', size: 10, weight: 400 }),
+  asciiWidth,
+  '测量结果应缓存且可复现'
+);
+assert.match(measureModule.fontCSSFamily({ family: 'monospace' }), /ui-monospace/);
+assert.match(measureModule.fontCSSFamily({ family: 'rounded' }), /ui-rounded/);
+assert.match(measureModule.fontCSSFamily({ name: 'Menlo' }), /'Menlo'/);
 const widgets = globalThis.ScriptablePreviewWidgets;
 const previewStyles = await readFile(new URL('../preview/styles.css', import.meta.url), 'utf8');
 const previewHTML = await readFile(new URL('../preview/index.html', import.meta.url), 'utf8');
@@ -207,6 +224,25 @@ assert.match(dateStyleBody, />52:00</);
 assert.match(dateStyleBody, />2:00:00</);
 assert.match(dateStyleBody, />\+30分钟</);
 assert.match(dateStyleBody, />-30分钟</);
+assert.match(dateStyleBody, /data-date-style="timer"/, '日期节点应携带自动刷新数据属性');
+assert.match(dateStyleBody, /data-date-style="offset"/);
+assert.match(dateStyleBody, /data-date-iso="/);
+
+const fakeTimerSpan = {
+  getAttribute: (name) => ({
+    'data-date-style': 'timer',
+    'data-date-iso': new Date(Date.now() + 52 * 60 * 1000).toISOString(),
+  })[name] ?? null,
+  textContent: '',
+};
+const stopTicker = runtime.mountDateTicker(
+  { querySelectorAll: () => [fakeTimerSpan] },
+  { intervalMs: 60 * 60 * 1000 }
+);
+assert.match(fakeTimerSpan.textContent, /^5[12]:\d\d$/, 'ticker 挂载后应立即校准日期文本');
+stopTicker();
+const noopStop = runtime.mountDateTicker(null);
+assert.equal(typeof noopStop, 'function', '无 DOM 环境应返回 no-op 停止函数');
 
 const layoutFixture = `
 const widget = new ListWidget();
@@ -292,6 +328,160 @@ assert.match(
   /class="sp-node sp-image" style="[^"]*flex-shrink:0/,
   '固定尺寸图片不应被主轴压缩'
 );
+
+const dynamicColorFixture = `
+const widget = new ListWidget();
+const label = widget.addText('动态颜色');
+label.textColor = Color.dynamic(new Color('#111111'), new Color('#eeeeee'));
+widget.backgroundColor = Color.dynamic(new Color('#fafafa'), new Color('#101010'));
+Script.setWidget(widget);
+Script.complete();
+`;
+const dynamicColorTree = await runtime.executeSource({
+  source: dynamicColorFixture,
+  scriptId: 'dynamic-color-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const dynamicLight = runtime.renderWidgetTree(dynamicColorTree, { now: fixedNow, appearance: 'light' });
+const dynamicDark = runtime.renderWidgetTree(dynamicColorTree, { now: fixedNow, appearance: 'dark' });
+assert.match(dynamicLight, /color:#111111/, '浅色外观应取 Color.dynamic 的 light 值');
+assert.match(dynamicLight, /background:#fafafa/);
+assert.match(dynamicDark, /color:#eeeeee/, '深色外观应在渲染期切换为 dark 值');
+assert.match(dynamicDark, /background:#101010/);
+
+const allocationFixture = `
+const widget = new ListWidget();
+widget.setPadding(10, 10, 10, 10);
+const row = widget.addStack();
+const short = row.addText('AB');
+short.font = Font.systemFont(15);
+const long = row.addText('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+long.font = Font.systemFont(15);
+row.addSpacer();
+Script.setWidget(widget);
+Script.complete();
+`;
+const allocationTree = await runtime.executeSource({
+  source: allocationFixture,
+  scriptId: 'allocation-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+// small = 158×158，padding 10 → 内层 138×138。
+// 近似测量 @15px：ASCII 0.55em=8.25/字符；短文本理想 16.5、长文本理想 330。
+// 分配：短文本不灵活先拿满 16.5，长文本按需取 113.5（截断），Spacer 兜底 8。
+const allocationBody = runtime.renderWidgetTree(allocationTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.match(allocationBody, />AB</, '布局引擎启用后文本内容应保留');
+assert.match(
+  allocationBody,
+  /class="sp-node sp-text" style="[^"]*width:16\.5px[^"]*">AB</,
+  '短文本（不灵活）应优先拿到完整理想宽度'
+);
+assert.match(
+  allocationBody,
+  /class="sp-node sp-text" style="[^"]*width:113\.5px[^"]*">X+</,
+  '长文本应按需取用剩余提议（而非与短文本比例收缩）'
+);
+assert.match(
+  allocationBody,
+  /class="sp-node sp-spacer" style="[^"]*width:8px/,
+  'Spacer 应分得预扣的最小长度'
+);
+assert.match(
+  allocationBody,
+  /class="sp-node sp-stack sp-horizontal" style="[^"]*width:138px;height:17\.4px/,
+  '横向子 Stack 应 stretch 到内宽、高度为单行文本行高'
+);
+const noSizeBody = runtime.renderWidgetTree(allocationTree, { now: fixedNow });
+assert.doesNotMatch(noSizeBody, /width:113\.5px/, '未注入容器尺寸时应保持 flex 近似路径');
+
+const scaleFixture = `
+const widget = new ListWidget();
+widget.setPadding(10, 10, 10, 10);
+const row = widget.addStack();
+const label = row.addText('XXXXXXXXXXXXXXXXXXXX');
+label.font = Font.systemFont(20);
+label.minimumScaleFactor = 0.5;
+Script.setWidget(widget);
+Script.complete();
+`;
+const scaleTree = await runtime.executeSource({
+  source: scaleFixture,
+  scriptId: 'scale-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+// 理想宽度 20×11=220 > 内层 138；按 minimumScaleFactor 二分缩字号：
+// 11·s ≤ 138 → s ≈ 12.55（下限 10 未触达），随后不再截断
+const scaleBody = runtime.renderWidgetTree(scaleTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.match(
+  scaleBody,
+  /font-size:12\.55px/,
+  'minimumScaleFactor 应先二分缩小字号再考虑截断'
+);
+assert.doesNotMatch(
+  scaleBody,
+  /data-minimum-scale-factor/,
+  '布局引擎完成缩放后不应再输出 DOM 级缩放属性'
+);
+
+const aspectFixture = `
+const widget = new ListWidget();
+const context = new DrawContext();
+context.size = new Size(200, 100);
+const image = widget.addImage(context.getImage());
+image.imageSize = new Size(24, 0);
+Script.setWidget(widget);
+Script.complete();
+`;
+const aspectTree = await runtime.executeSource({
+  source: aspectFixture,
+  scriptId: 'aspect-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const aspectBody = runtime.renderWidgetTree(aspectTree, { now: fixedNow });
+assert.match(
+  aspectBody,
+  /class="sp-node sp-image" style="width:24px;height:12px/,
+  'imageSize 只设一边时应按固有纵横比（200×100 → 2:1）推导另一边'
+);
+const aspectLaidBody = runtime.renderWidgetTree(aspectTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.match(aspectLaidBody, /width:24px;height:12px/, '布局引擎路径应使用同一纵横比推导');
+
+// 全部真实组件走布局引擎路径的冒烟测试（浏览器路径与之一致）
+for (const widget of widgets) {
+  const source = await readFile(new URL(`../dist/${widget.id}.js`, import.meta.url), 'utf8');
+  for (const family of core.families) {
+    const tree = await runtime.executeSource({
+      source,
+      scriptId: widget.id,
+      family: family.id,
+      appearance: 'light',
+      now: fixedNow,
+    });
+    const body = runtime.renderWidgetTree(tree, {
+      now: fixedNow,
+      size: { width: family.width, height: family.height },
+    });
+    assert.match(body, /class="sp-node sp-runtime-root/);
+    assert.doesNotMatch(body, /undefined|NaN/);
+  }
+}
 
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);

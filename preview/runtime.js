@@ -4,9 +4,19 @@
   const sourceCache = new Map();
   const symbols = global.ScriptablePreviewSymbols;
   const ir = global.ScriptablePreviewIR;
+  const measure = global.ScriptablePreviewMeasure;
+  const layout = global.ScriptablePreviewLayout;
 
   if (!symbols) throw new Error('请先加载 preview/symbols.js');
   if (!ir) throw new Error('请先加载 preview/ir.js');
+  if (!measure) throw new Error('请先加载 preview/measure.js');
+  if (!layout) throw new Error('请先加载 preview/layout.js');
+
+  const textMeasurer = measure.createMeasurer();
+  const layoutEngine = layout.createLayoutEngine({
+    measure: textMeasurer.measure,
+    defaultFontSize: measure.DEFAULT_FONT_SIZE,
+  });
 
   const escapeHTML = (value) =>
     String(value ?? '')
@@ -59,15 +69,8 @@
 
   const fontStyles = (font) => {
     if (!font) return {};
-    const family = font.name
-      ? `'${String(font.name).replaceAll("'", '')}',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif`
-      : font.family === 'monospace'
-      ? "ui-monospace,'SFMono-Regular',Menlo,Monaco,Consolas,monospace"
-      : font.family === 'rounded'
-        ? "ui-rounded,'SF Pro Rounded',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
-        : "-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif";
     return {
-      fontFamily: family,
+      fontFamily: measure.fontCSSFamily(font),
       fontSize: `${font.size}px`,
       fontWeight: font.weight,
       fontStyle: font.style === 'italic' ? 'italic' : null,
@@ -124,11 +127,11 @@
       ` preserveAspectRatio="xMidYMid meet">${body}</svg>`;
   };
 
-  const renderDrawImage = (image, extraClass = '') => {
+  const renderDrawImage = (image, extraClass = '', pick = colorToCSS) => {
     const width = Math.max(1, Number(image.size?.width) || 1);
     const height = Math.max(1, Number(image.size?.height) || 1);
     const body = image.ops.map((operation) => {
-      const fill = escapeAttribute(colorToCSS(operation.color) || 'transparent');
+      const fill = escapeAttribute(pick(operation.color) || 'transparent');
       const rect = operation.rect || {};
       if (operation.type === 'fillRect') {
         return `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" fill="${fill}"/>`;
@@ -183,26 +186,26 @@
     return `<svg class="sp-drawn-image ${extraClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${body}</svg>`;
   };
 
-  const gradientToCSS = (gradient) => {
+  const gradientToCSS = (gradient, pick = colorToCSS) => {
     if (!gradient?.colors?.length) return null;
     const start = gradient.startPoint || { x: 0, y: 0 };
     const end = gradient.endPoint || { x: 0, y: 1 };
     const angle = Math.round(Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI + 90);
     const stops = gradient.colors.map((color, index) => {
       const location = gradient.locations?.[index];
-      return `${colorToCSS(color)}${Number.isFinite(location) ? ` ${location * 100}%` : ''}`;
+      return `${pick(color)}${Number.isFinite(location) ? ` ${location * 100}%` : ''}`;
     });
     return `linear-gradient(${angle}deg,${stops.join(',')})`;
   };
 
   const STACK_ALIGNMENT_TO_CSS = { top: 'flex-start', center: 'center', bottom: 'flex-end' };
 
-  const renderImageNode = (node) => {
+  const renderImageNode = (node, pick = colorToCSS) => {
     const image = node.codableImage || {};
-    const naturalSize = image.size || { width: 16, height: 16 };
-    const width = Number(node.imageSize?.width) || Number(naturalSize.width) || 16;
-    const height = Number(node.imageSize?.height) || Number(naturalSize.height) || 16;
-    const color = colorToCSS(node.tintColor) || 'currentColor';
+    const extent = layout.imageExtent(node);
+    const width = extent.width;
+    const height = extent.height;
+    const color = pick(node.tintColor) || 'currentColor';
     const style = styleText({
       width: `${width}px`,
       height: `${height}px`,
@@ -211,7 +214,7 @@
       color,
       opacity: node.imageOpacity === 1 ? null : node.imageOpacity,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
-      border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor) || '#000000'}` : null,
+      border: node.borderWidth ? `${node.borderWidth}px solid ${pick(node.borderColor) || '#000000'}` : null,
       alignSelf: node.imageAlignment === 'center' ? 'center' : node.imageAlignment === 'right' ? 'flex-end' : null,
     });
     let content;
@@ -221,7 +224,7 @@
         `class="sp-symbol-svg" role="img" aria-label="${escapeAttribute(image.name)}"`
       );
     } else if (image.kind === 'draw') {
-      content = renderDrawImage(image);
+      content = renderDrawImage(image, '', pick);
     } else if (image.kind === 'remote') {
       const source = image.url.includes('ikuai64.ico') ? '../image/ikuai64.ico' : image.url;
       content = `<img src="${escapeAttribute(source)}" alt="">`;
@@ -234,7 +237,7 @@
     return `<span class="${classes.join(' ')}" style="${style}"${node.rawOpenURL ? ` data-url="${escapeAttribute(node.rawOpenURL)}"` : ''}>${content}</span>`;
   };
 
-  const renderTextNode = (node, now) => {
+  const renderTextNode = (node, now, pick = colorToCSS) => {
     const styling = node.styling || {};
     const value = node.type === 'date' ? formatDate(new Date(node.date), now, node.dateStyle) : node.text;
     const minimumScaleFactor = Number.isFinite(styling.minimumScaleFactor)
@@ -244,24 +247,43 @@
     const lineLimit = Number(styling.lineLimit) > 0 ? Number(styling.lineLimit) : null;
     const style = styleText({
       ...fontStyles(styling.font),
-      color: colorToCSS(styling.textColor),
+      // 布局引擎 minimumScaleFactor 计算出的实际字号（覆盖原始 font 字号）
+      ...(node._fontScale ? { fontSize: `${node._fontScale}px` } : null),
+      // 布局引擎的显式尺寸（主轴分配结果）
+      width: node._size ? `${node._size.width}px` : null,
+      height: node._size ? `${node._size.height}px` : null,
+      color: pick(styling.textColor),
       opacity: styling.textOpacity,
       textAlign: node.horizontalTextAlignment,
       WebkitLineClamp: lineLimit,
       textShadow: styling.shadowRadius
-        ? `${Number(styling.shadowOffset?.x) || 0}px ${Number(styling.shadowOffset?.y) || 0}px ${styling.shadowRadius}px ${colorToCSS(styling.shadowColor) || '#000000'}`
+        ? `${Number(styling.shadowOffset?.x) || 0}px ${Number(styling.shadowOffset?.y) || 0}px ${styling.shadowRadius}px ${pick(styling.shadowColor) || '#000000'}`
         : null,
     });
     const classes = ['sp-node', 'sp-text'];
     if (lineLimit) classes.push('sp-text--clamped');
     if (lineLimit === 1) classes.push('sp-text--single-line');
-    const scaleAttributes = minimumScaleFactor && styling.font
+    // 布局引擎已完成缩放计算时不再输出 DOM 级缩放属性，避免二次缩放
+    const scaleAttributes = minimumScaleFactor && styling.font && !node._fontScale
       ? ` data-font-size="${styling.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
       : '';
-    return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}>${escapeHTML(value)}</span>`;
+    // relative/offset/timer 是系统级自动刷新文本：输出数据属性供挂载后 tick 更新。
+    const dateAttributes = node.type === 'date'
+      ? ` data-date-iso="${escapeAttribute(new Date(node.date).toISOString())}" data-date-style="${escapeAttribute(node.dateStyle || 'time')}"`
+      : '';
+    return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}${dateAttributes}>${escapeHTML(value)}</span>`;
   };
 
   const renderSpacer = (node) => {
+    // 布局引擎已给出显式尺寸时，Spacer 退化为固定占位
+    if (node._size) {
+      const style = styleText({
+        flex: 'none',
+        width: node._size.width > 0 ? `${node._size.width}px` : null,
+        height: node._size.height > 0 ? `${node._size.height}px` : null,
+      });
+      return `<span class="sp-node sp-spacer" style="${style}"></span>`;
+    }
     // SwiftUI Spacer(minLength:)：始终可以伸展，最小长度 = length ?? 系统默认间距（≈8pt）。
     const basis = Number.isFinite(node.length) ? node.length : 8;
     return `<span class="sp-node sp-spacer" style="flex:1 0 ${basis}px"></span>`;
@@ -274,11 +296,11 @@
     return child.type === 'stack' && containsFlexibleSpacer(child, direction);
   });
 
-  const renderContainer = (node, now, root = false, parentDirection = null) => {
+  const renderContainer = (node, now, pick, root = false, parentDirection = null) => {
     const direction = node.contentDirection || (root ? 'vertical' : 'horizontal');
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
-    const background = gradientToCSS(node.backgroundGradient) || colorToCSS(node.backgroundColor);
+    const background = gradientToCSS(node.backgroundGradient, pick) || pick(node.backgroundColor);
     const mainSize = parentDirection === 'horizontal' ? width : height;
     const flexChild = !root && node.type === 'stack' && !mainSize &&
       containsFlexibleSpacer(node, parentDirection);
@@ -290,23 +312,24 @@
       alignItems: direction === 'horizontal' ? (STACK_ALIGNMENT_TO_CSS[node.alignment] || 'flex-start') : 'stretch',
       justifyContent: direction === 'vertical' ? STACK_ALIGNMENT_TO_CSS[node.alignment] || null : null,
       padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
-      width: root ? '100%' : width,
-      height: root ? '100%' : height,
-      flex: flexChild || (!root && node.size && !width && !height) ? '1 1 0' : null,
-      flexShrink: mainSize ? 0 : null,
+      width: root ? '100%' : node._size ? `${node._size.width}px` : width,
+      height: root ? '100%' : node._size ? `${node._size.height}px` : height,
+      // 布局引擎已显式分配尺寸的节点不再使用 flex 启发式
+      flex: !node._size && (flexChild || (!root && node.size && !width && !height)) ? '1 1 0' : null,
+      flexShrink: !node._size && mainSize ? 0 : null,
       gap: Number.isFinite(node.spacing) && node.spacing > 0 ? `${node.spacing}px` : null,
       background,
-      border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor) || '#000000'}` : null,
+      border: node.borderWidth ? `${node.borderWidth}px solid ${pick(node.borderColor) || '#000000'}` : null,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
       overflow: node.cornerRadius ? 'hidden' : null,
     });
     const backgroundImage = node.backgroundImage?.kind === 'draw'
-      ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background')}</span>`
+      ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background', pick)}</span>`
       : '';
     const children = node.elements.map((child) => {
-      if (child.type === 'stack') return renderContainer(child, now, false, direction);
-      if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now);
-      if (child.type === 'image') return renderImageNode(child);
+      if (child.type === 'stack') return renderContainer(child, now, pick, false, direction);
+      if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now, pick);
+      if (child.type === 'image') return renderImageNode(child, pick);
       if (child.type === 'spacer') return renderSpacer(child);
       return '';
     }).join('');
@@ -316,8 +339,37 @@
     return `<div class="${classes.join(' ')}" style="${style}"${openURL ? ` data-url="${escapeAttribute(openURL)}"` : ''}>${backgroundImage}${children}</div>`;
   };
 
-  const renderWidgetTree = (tree, { now = new Date() } = {}) =>
-    renderContainer(tree, now instanceof Date ? now : new Date(now), true);
+  const renderWidgetTree = (tree, { now = new Date(), appearance = 'light', size = null } = {}) => {
+    // Color.dynamic 在渲染期按外观取色：IR 中 light 为基准值、dark 为备用值。
+    const pick = (color) => colorToCSS(appearance === 'dark' && color?.dark ? color.dark : color);
+    const resolvedNow = now instanceof Date ? now : new Date(now);
+    // 宿主注入容器尺寸时启用布局引擎（提议-应答分配）；
+    // 缺省保持 flex 近似路径（测试钉板与无尺寸场景）。
+    const target = Number(size?.width) > 0 && Number(size?.height) > 0
+      ? layoutEngine.annotate(tree, size, (node) =>
+          node.type === 'date' ? formatDate(new Date(node.date), resolvedNow, node.dateStyle) : node.text)
+      : tree;
+    return renderContainer(target, resolvedNow, pick, true);
+  };
+
+  // 挂载后自动刷新 relative/offset/timer 日期文本（系统级行为，无需重跑脚本）。
+  // 返回停止函数；非浏览器环境（无 DOM）时为 no-op。
+  const mountDateTicker = (root, { intervalMs = 1000 } = {}) => {
+    if (!root || typeof root.querySelectorAll !== 'function') return () => {};
+    const tick = () => {
+      const now = new Date();
+      root.querySelectorAll('[data-date-iso]').forEach((element) => {
+        const style = element.getAttribute('data-date-style') || 'time';
+        if (style !== 'relative' && style !== 'offset' && style !== 'timer') return;
+        const date = new Date(element.getAttribute('data-date-iso'));
+        if (Number.isNaN(date.getTime())) return;
+        element.textContent = formatDate(date, now, style);
+      });
+    };
+    const handle = setInterval(tick, intervalMs);
+    tick();
+    return () => clearInterval(handle);
+  };
 
   const createFixtureResponse = (scriptId, url, request, now) => {
     if (url.includes('hitokoto.cn')) return '慢一点，也是在向前走。';
@@ -469,9 +521,9 @@
       }
 
       static dynamic(light, dark) {
-        const resolved = appearance === 'dark' ? dark : light;
-        const fallback = appearance === 'dark' ? light : dark;
-        if (resolved instanceof Color) resolved.dark = fallback instanceof Color ? fallback : null;
+        // IR 约定：基准值固定为 light，dark 为备用值，渲染期按外观取色。
+        const resolved = new Color(light instanceof Color ? light.hex : '#000000', light instanceof Color ? light.alpha : 1);
+        resolved.dark = dark instanceof Color ? dark : null;
         return resolved;
       }
 
@@ -1028,11 +1080,16 @@
       appearance: context.appearance,
       now: context.now,
     });
-    return renderWidgetTree(tree, { now: context.now });
+    return renderWidgetTree(tree, {
+      now: context.now,
+      appearance: context.appearance,
+      size: { width: context.family.width, height: context.family.height },
+    });
   };
 
   global.ScriptablePreviewRuntime = Object.freeze({
     executeSource,
+    mountDateTicker,
     renderDistWidget,
     renderWidgetTree,
     clearSourceCache: () => sourceCache.clear(),
