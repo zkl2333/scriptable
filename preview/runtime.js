@@ -46,16 +46,20 @@
     symbols.render(name, attributes) ||
     `<span class="sp-symbol-fallback" title="未映射的 SF Symbol：${escapeAttribute(name)}">?</span>`;
 
-  const createFont = (size, weight = 400, family = 'system') => ({
+  const createFont = (size, weight = 400, family = 'system', style = 'normal', name = null) => ({
     __kind: 'font',
     family,
     size: Number(size) || 12,
     weight,
+    style,
+    name,
   });
 
   const fontStyles = (font) => {
     if (!font) return {};
-    const family = font.family === 'monospace'
+    const family = font.name
+      ? `'${String(font.name).replaceAll("'", '')}',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif`
+      : font.family === 'monospace'
       ? "ui-monospace,'SFMono-Regular',Menlo,Monaco,Consolas,monospace"
       : font.family === 'rounded'
         ? "ui-rounded,'SF Pro Rounded',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
@@ -64,21 +68,50 @@
       fontFamily: family,
       fontSize: `${font.size}px`,
       fontWeight: font.weight,
+      fontStyle: font.style === 'italic' ? 'italic' : null,
     };
   };
 
-  const formatRelativeDate = (value, now) => {
-    const milliseconds = Math.max(0, value.getTime() - now.getTime());
-    const minutes = Math.max(1, Math.ceil(milliseconds / 60000));
-    if (minutes < 60) return `${minutes}分钟`;
-    if (minutes < 1440) {
-      const hours = Math.floor(minutes / 60);
-      const rest = minutes % 60;
-      return `${hours}小时${rest ? `${rest}分钟` : ''}`;
+  const formatDuration = (milliseconds, { includeSign = false, timer = false } = {}) => {
+    const absoluteSeconds = Math.max(0, Math.floor(Math.abs(milliseconds) / 1000));
+    const days = Math.floor(absoluteSeconds / 86400);
+    const hours = Math.floor(absoluteSeconds % 86400 / 3600);
+    const minutes = Math.floor(absoluteSeconds % 3600 / 60);
+    const seconds = absoluteSeconds % 60;
+    if (timer) {
+      const totalHours = hours + days * 24;
+      // Scriptable uses the compact ClockFormatter form: MM:SS below an hour,
+      // then H:MM:SS. In particular, it does not pad the hour component.
+      const base = totalHours
+        ? `${totalHours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      return includeSign && milliseconds < 0 ? `-${base}` : base;
     }
-    const days = Math.floor(minutes / 1440);
-    const hours = Math.floor((minutes % 1440) / 60);
-    return `${days}天${hours ? `${hours}小时` : ''}`;
+    const parts = days ? [`${days}天`] : [];
+    if (hours || days) parts.push(`${hours}小时`);
+    if (!days) parts.push(`${minutes}分钟`);
+    const value = parts.join('') || '0分钟';
+    // Date.applyOffsetStyle() reports elapsed time with a positive sign and
+    // remaining time with a negative sign (the opposite of a raw timestamp
+    // difference).
+    return includeSign ? `${milliseconds <= 0 ? '+' : '-'}${value}` : value;
+  };
+
+  const formatRelativeDate = (value, now) => {
+    const milliseconds = value.getTime() - now.getTime();
+    return milliseconds < 0
+      ? `${formatDuration(milliseconds).replace(/^/, '')}前`
+      : formatDuration(milliseconds);
+  };
+
+  const formatDate = (value, now, style) => {
+    if (style === 'relative') return formatRelativeDate(value, now);
+    if (style === 'offset') return formatDuration(value.getTime() - now.getTime(), { includeSign: true });
+    if (style === 'timer') return formatDuration(value.getTime() - now.getTime(), { timer: true });
+    if (style === 'time') {
+      return value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+    return value.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
   };
 
   const renderSymbolSVG = (image, rect, color, font) => {
@@ -98,6 +131,9 @@
       if (operation.type === 'fillRect') {
         return `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" fill="${fill}"/>`;
       }
+      if (operation.type === 'strokeRect') {
+        return `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" fill="none" stroke="${fill}" stroke-width="${operation.lineWidth}"/>`;
+      }
       if (operation.type === 'fillEllipse') {
         return `<ellipse cx="${rect.x + rect.width / 2}" cy="${rect.y + rect.height / 2}" rx="${rect.width / 2}" ry="${rect.height / 2}" fill="${fill}"/>`;
       }
@@ -107,10 +143,28 @@
       if (operation.type === 'roundedRect') {
         return `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" rx="${operation.radius}" ry="${operation.radius}" fill="${fill}"/>`;
       }
+      if (operation.type === 'strokeRoundedRect') {
+        return `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" rx="${operation.radius}" ry="${operation.radius}" fill="none" stroke="${fill}" stroke-width="${operation.lineWidth}"/>`;
+      }
+      if (operation.type === 'path') {
+        const commands = operation.commands.map((command) => {
+          if (command.type === 'move') return `M ${command.point.x} ${command.point.y}`;
+          if (command.type === 'line') return `L ${command.point.x} ${command.point.y}`;
+          if (command.type === 'curve') return `C ${command.control1.x} ${command.control1.y}, ${command.control2.x} ${command.control2.y}, ${command.point.x} ${command.point.y}`;
+          if (command.type === 'quad') return `Q ${command.control.x} ${command.control.y}, ${command.point.x} ${command.point.y}`;
+          if (command.type === 'close') return 'Z';
+          return '';
+        }).join(' ');
+        return `<path d="${commands}" fill="${operation.mode === 'fill' ? fill : 'none'}"${operation.mode === 'stroke' ? ` stroke="${fill}" stroke-width="${operation.lineWidth}"` : ''}/>`;
+      }
       if (operation.type === 'text') {
         const font = operation.font || createFont(12);
-        const x = operation.alignment === 'center' ? rect.x + rect.width / 2 : rect.x;
-        const anchor = operation.alignment === 'center' ? 'middle' : 'start';
+        const x = operation.alignment === 'center'
+          ? rect.x + rect.width / 2
+          : operation.alignment === 'right'
+            ? rect.x + rect.width
+            : rect.x;
+        const anchor = operation.alignment === 'center' ? 'middle' : operation.alignment === 'right' ? 'end' : 'start';
         const y = rect.y + Math.min(rect.height, font.size) * 0.86;
         return `<text x="${x}" y="${y}" fill="${fill}" font-size="${font.size}"` +
           ` font-family="${font.family === 'monospace' ? 'monospace' : 'sans-serif'}"` +
@@ -148,6 +202,7 @@
       color,
       opacity: node.imageOpacity,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
+      border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor) || '#000000'}` : null,
       alignSelf: node.alignment === 'center' ? 'center' : node.alignment === 'right' ? 'flex-end' : null,
     });
     let content;
@@ -164,15 +219,14 @@
     } else {
       content = '<span class="sp-symbol" aria-hidden="true">◆</span>';
     }
-    return `<span class="sp-node sp-image" style="${style}">${content}</span>`;
+    const classes = ['sp-node', 'sp-image'];
+    if (node.contentMode === 'fill') classes.push('sp-image--fill');
+    if (node.containerRelativeShape) classes.push('sp-image--container-shape');
+    return `<span class="${classes.join(' ')}" style="${style}"${node.url ? ` data-url="${escapeAttribute(node.url)}"` : ''}>${content}</span>`;
   };
 
   const renderTextNode = (node, now) => {
-    const value = node.kind === 'date'
-      ? node.dateStyle === 'relative'
-        ? formatRelativeDate(node.value, now)
-        : node.value.toLocaleString('zh-CN')
-      : node.value;
+    const value = node.kind === 'date' ? formatDate(node.value, now, node.dateStyle) : node.value;
     const minimumScaleFactor = Number.isFinite(node.minimumScaleFactor)
       ? Math.min(1, Math.max(0.01, Number(node.minimumScaleFactor)))
       : null;
@@ -182,6 +236,9 @@
       opacity: node.textOpacity,
       textAlign: node.alignment,
       WebkitLineClamp: node.lineLimit || null,
+      textShadow: node.shadowRadius
+        ? `${Number(node.shadowOffset?.x) || 0}px ${Number(node.shadowOffset?.y) || 0}px ${node.shadowRadius}px ${colorToCSS(node.shadowColor) || '#000000'}`
+        : null,
     });
     const classes = ['sp-node', 'sp-text'];
     if (node.lineLimit) classes.push('sp-text--clamped');
@@ -231,7 +288,7 @@
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
       overflow: node.cornerRadius ? 'hidden' : null,
     });
-    const backgroundImage = root && node.backgroundImage?.__kind === 'draw'
+    const backgroundImage = node.backgroundImage?.__kind === 'draw'
       ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background')}</span>`
       : '';
     const children = node.children.map((child) => {
@@ -241,7 +298,9 @@
       if (child.kind === 'spacer') return renderSpacer(child, direction);
       return '';
     }).join('');
-    return `<div class="sp-node ${root ? 'sp-runtime-root' : 'sp-stack'} sp-${direction}" style="${style}">${backgroundImage}${children}</div>`;
+    const classes = ['sp-node', root ? 'sp-runtime-root' : 'sp-stack', `sp-${direction}`];
+    if (root && node.addAccessoryWidgetBackground) classes.push('sp-accessory-background');
+    return `<div class="${classes.join(' ')}" style="${style}"${node.url ? ` data-url="${escapeAttribute(node.url)}"` : ''}>${backgroundImage}${children}</div>`;
   };
 
   const renderWidgetTree = (widget, { now = new Date() } = {}) =>
@@ -398,11 +457,28 @@
       static dynamic(light, dark) {
         return appearance === 'dark' ? dark : light;
       }
+
+      static black() { return new Color('#000000'); }
+      static darkGray() { return new Color('#555555'); }
+      static lightGray() { return new Color('#aaaaaa'); }
+      static white() { return new Color('#ffffff'); }
+      static gray() { return new Color('#8e8e93'); }
+      static red() { return new Color('#ff3b30'); }
+      static green() { return new Color('#34c759'); }
+      static blue() { return new Color('#007aff'); }
+      static cyan() { return new Color('#32ade6'); }
+      static yellow() { return new Color('#ffcc00'); }
+      static magenta() { return new Color('#ff2d55'); }
+      static orange() { return new Color('#ff9500'); }
+      static purple() { return new Color('#af52de'); }
+      static brown() { return new Color('#a2845e'); }
+      static clear() { return new Color('#000000', 0); }
     }
 
     class Font {
       constructor(name, size) {
-        return createFont(size, /bold/i.test(name) ? 700 : 400, /menlo|mono/i.test(name) ? 'monospace' : 'system');
+        const family = /menlo|mono/i.test(name) ? 'monospace' : /rounded/i.test(name) ? 'rounded' : 'system';
+        return createFont(size, /black|heavy|bold/i.test(name) ? 700 : /semibold|medium/i.test(name) ? 600 : 400, family, /italic|oblique/i.test(name) ? 'italic' : 'normal', family === 'system' ? name : null);
       }
 
       static systemFont(size) { return createFont(size); }
@@ -410,10 +486,24 @@
       static mediumSystemFont(size) { return createFont(size, 500); }
       static semiboldSystemFont(size) { return createFont(size, 600); }
       static boldSystemFont(size) { return createFont(size, 700); }
+      static ultraLightSystemFont(size) { return createFont(size, 200); }
+      static thinSystemFont(size) { return createFont(size, 300); }
+      static lightSystemFont(size) { return createFont(size, 300); }
+      static heavySystemFont(size) { return createFont(size, 800); }
+      static blackSystemFont(size) { return createFont(size, 900); }
+      static italicSystemFont(size) { return createFont(size, 400, 'system', 'italic'); }
       static semiboldRoundedSystemFont(size) { return createFont(size, 600, 'rounded'); }
       static boldRoundedSystemFont(size) { return createFont(size, 700, 'rounded'); }
+      static regularRoundedSystemFont(size) { return createFont(size, 400, 'rounded'); }
+      static mediumRoundedSystemFont(size) { return createFont(size, 500, 'rounded'); }
+      static heavyRoundedSystemFont(size) { return createFont(size, 800, 'rounded'); }
+      static blackRoundedSystemFont(size) { return createFont(size, 900, 'rounded'); }
       static regularMonospacedSystemFont(size) { return createFont(size, 400, 'monospace'); }
+      static mediumMonospacedSystemFont(size) { return createFont(size, 500, 'monospace'); }
+      static semiboldMonospacedSystemFont(size) { return createFont(size, 600, 'monospace'); }
       static boldMonospacedSystemFont(size) { return createFont(size, 700, 'monospace'); }
+      static heavyMonospacedSystemFont(size) { return createFont(size, 800, 'monospace'); }
+      static blackMonospacedSystemFont(size) { return createFont(size, 900, 'monospace'); }
     }
 
     class Size {
@@ -440,8 +530,17 @@
     }
 
     class Path {
-      constructor() { this.shapes = []; }
-      addRoundedRect(rect, radius) { this.shapes.push({ rect, radius }); }
+      constructor() { this.shapes = []; this.commands = []; }
+      move(point) { this.commands.push({ type: 'move', point }); }
+      addLine(point) { this.commands.push({ type: 'line', point }); }
+      addRect(rect) { this.shapes.push({ type: 'rect', rect }); }
+      addEllipse(rect) { this.shapes.push({ type: 'ellipse', rect }); }
+      addRoundedRect(rect, cornerWidth, cornerHeight = cornerWidth) { this.shapes.push({ type: 'roundedRect', rect, radius: Math.min(cornerWidth, cornerHeight) }); }
+      addCurve(point, control1, control2) { this.commands.push({ type: 'curve', point, control1, control2 }); }
+      addQuadCurve(point, control) { this.commands.push({ type: 'quad', point, control }); }
+      addLines(points) { points.forEach((point, index) => index === 0 ? this.move(point) : this.addLine(point)); }
+      addRects(rects) { rects.forEach((rect) => this.addRect(rect)); }
+      closeSubpath() { this.commands.push({ type: 'close' }); }
     }
 
     class DrawContext {
@@ -462,20 +561,37 @@
       setLineWidth(width) { this.lineWidth = Number(width); }
       setFont(font) { this.font = font; }
       setTextColor(color) { this.textColor = color; }
+      setTextAlignedLeft() { this.textAlignment = 'left'; }
       setTextAlignedCenter() { this.textAlignment = 'center'; }
+      setTextAlignedRight() { this.textAlignment = 'right'; }
+      fill(rect) { this.fillRect(rect); }
       fillRect(rect) { this.ops.push({ type: 'fillRect', rect, color: this.fillColor }); }
+      stroke(rect) { this.strokeRect(rect); }
+      strokeRect(rect) { this.ops.push({ type: 'strokeRect', rect, color: this.strokeColor, lineWidth: this.lineWidth }); }
       fillEllipse(rect) { this.ops.push({ type: 'fillEllipse', rect, color: this.fillColor }); }
       strokeEllipse(rect) { this.ops.push({ type: 'strokeEllipse', rect, color: this.strokeColor, lineWidth: this.lineWidth }); }
       addPath(path) { this.currentPath = path; }
       fillPath() {
         for (const shape of this.currentPath?.shapes || []) {
-          this.ops.push({ type: 'roundedRect', ...shape, color: this.fillColor });
+          this.ops.push({ type: shape.type === 'roundedRect' ? 'roundedRect' : shape.type === 'ellipse' ? 'fillEllipse' : 'fillRect', ...shape, color: this.fillColor });
         }
+        if (this.currentPath?.commands?.length) this.ops.push({ type: 'path', commands: this.currentPath.commands, color: this.fillColor, mode: 'fill' });
       }
+      strokePath() {
+        for (const shape of this.currentPath?.shapes || []) {
+          this.ops.push({ type: shape.type === 'roundedRect' ? 'strokeRoundedRect' : shape.type === 'ellipse' ? 'strokeEllipse' : 'strokeRect', ...shape, color: this.strokeColor, lineWidth: this.lineWidth });
+        }
+        if (this.currentPath?.commands?.length) this.ops.push({ type: 'path', commands: this.currentPath.commands, color: this.strokeColor, lineWidth: this.lineWidth, mode: 'stroke' });
+      }
+      drawText(text, point) { this.drawTextInRect(text, new Rect(point.x, point.y, this.size.width - point.x, this.size.height - point.y)); }
       drawTextInRect(text, rect) {
         this.ops.push({ type: 'text', text, rect, color: this.textColor, font: this.font, alignment: this.textAlignment });
       }
       drawImageInRect(image, rect) { this.ops.push({ type: 'image', image, rect, color: this.textColor }); }
+      drawImageAtPoint(image, point) {
+        const size = image?.size || new Size(16, 16);
+        this.drawImageInRect(image, new Rect(point.x, point.y, size.width, size.height));
+      }
       getImage() { return { __kind: 'draw', size: this.size, ops: [...this.ops] }; }
     }
 
@@ -509,7 +625,8 @@
         child.applyRelativeStyle = () => { child.dateStyle = 'relative'; };
         child.applyDateStyle = () => { child.dateStyle = 'date'; };
         child.applyTimeStyle = () => { child.dateStyle = 'time'; };
-        child.applyTimerStyle = () => { child.dateStyle = 'relative'; };
+        child.applyOffsetStyle = () => { child.dateStyle = 'offset'; };
+        child.applyTimerStyle = () => { child.dateStyle = 'timer'; };
         this.children.push(child);
         return child;
       }
@@ -519,6 +636,8 @@
         child.leftAlignImage = () => { child.alignment = 'left'; };
         child.centerAlignImage = () => { child.alignment = 'center'; };
         child.rightAlignImage = () => { child.alignment = 'right'; };
+        child.applyFittingContentMode = () => { child.contentMode = 'fit'; };
+        child.applyFillingContentMode = () => { child.contentMode = 'fill'; };
         this.children.push(child);
         return child;
       }
@@ -532,6 +651,8 @@
       setPadding(top, left, bottom, right) {
         this.padding = { top: Number(top), left: Number(left), bottom: Number(bottom), right: Number(right) };
       }
+
+      useDefaultPadding() { this.padding = undefined; }
 
       layoutHorizontally() { this.direction = 'horizontal'; }
       layoutVertically() { this.direction = 'vertical'; }

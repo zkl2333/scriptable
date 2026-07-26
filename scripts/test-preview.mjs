@@ -28,7 +28,22 @@ assert.deepEqual(
     'accessoryRectangular',
   ]
 );
-assert.equal(new Set(widgets.map(({ id }) => id)).size, 7);
+assert.deepEqual(
+  widgets.map(({ id }) => id),
+  [
+    'hitokoto',
+    'render-api-lab',
+    'draw-context-lab',
+    'accessory-lab',
+    'ikuai',
+    'milk-tea-reminder',
+    'time-progress',
+    'today-dashboard',
+    'work-helper',
+    'xlyra',
+  ]
+);
+assert.equal(new Set(widgets.map(({ id }) => id)).size, 10);
 
 const engine = core.createPreviewEngine({ widgets });
 assert.deepEqual(engine.getState(), {
@@ -116,6 +131,77 @@ assert.match(workHelperBody, /class="sp-symbol-svg"/);
 assert.match(workHelperBody, /viewBox="0 0 256 256"/);
 assert.doesNotMatch(workHelperBody, /sp-symbol-fallback/);
 
+const renderApiSource = await readFile(new URL('../dist/render-api-lab.js', import.meta.url), 'utf8');
+const renderApiTree = await runtime.executeSource({
+  source: renderApiSource,
+  scriptId: 'render-api-lab',
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+});
+const renderApiBody = runtime.renderWidgetTree(renderApiTree, { now: fixedNow });
+assert.match(renderApiBody, /text-shadow:0px 1px 2px/);
+assert.match(renderApiBody, new RegExp('data-url="scriptable:///run/render-api-lab"'));
+assert.match(renderApiBody, /sp-widget-background/);
+assert.match(renderApiBody, /border:1px solid/);
+assert.match(renderApiBody, /data-minimum-scale-factor="0.65"/);
+assert.match(renderApiBody, /52:00/);
+assert.match(renderApiBody, />2小时0分钟</);
+assert.match(renderApiBody, />\+30分钟</);
+assert.doesNotMatch(renderApiBody, /sp-symbol-fallback/);
+
+const accessorySource = await readFile(new URL('../dist/accessory-lab.js', import.meta.url), 'utf8');
+const accessoryTree = await runtime.executeSource({
+  source: accessorySource,
+  scriptId: 'accessory-lab',
+  family: 'accessoryRectangular',
+  appearance: 'light',
+  now: fixedNow,
+});
+const accessoryBody = runtime.renderWidgetTree(accessoryTree, { now: fixedNow });
+assert.match(accessoryBody, /sp-accessory-background/);
+
+const drawContextSource = await readFile(new URL('../dist/draw-context-lab.js', import.meta.url), 'utf8');
+const drawContextTree = await runtime.executeSource({
+  source: drawContextSource,
+  scriptId: 'draw-context-lab',
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+});
+const drawContextBody = runtime.renderWidgetTree(drawContextTree, { now: fixedNow });
+assert.match(drawContextBody, /stroke-width="2"/);
+assert.match(drawContextBody, /text-anchor="end"/);
+assert.match(drawContextBody, /<path d="M /);
+assert.match(drawContextBody, /sp-image--fill/);
+assert.doesNotMatch(drawContextBody, /sp-symbol-fallback/);
+
+const dateStyleFixture = `
+const widget = new ListWidget();
+const belowHour = widget.addDate(new Date(Date.now() + 52 * 60 * 1000));
+belowHour.applyTimerStyle();
+const aboveHour = widget.addDate(new Date(Date.now() + 2 * 60 * 60 * 1000));
+aboveHour.applyTimerStyle();
+const past = widget.addDate(new Date(Date.now() - 30 * 60 * 1000));
+past.applyOffsetStyle();
+const future = widget.addDate(new Date(Date.now() + 30 * 60 * 1000));
+future.applyOffsetStyle();
+Script.setWidget(widget);
+Script.complete();
+`;
+const dateStyleTree = await runtime.executeSource({
+  source: dateStyleFixture,
+  scriptId: 'date-style-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const dateStyleBody = runtime.renderWidgetTree(dateStyleTree, { now: fixedNow });
+assert.match(dateStyleBody, />52:00</);
+assert.match(dateStyleBody, />2:00:00</);
+assert.match(dateStyleBody, />\+30分钟</);
+assert.match(dateStyleBody, />-30分钟</);
+
 const layoutFixture = `
 const widget = new ListWidget();
 const column = widget.addStack();
@@ -159,8 +245,8 @@ assert.match(
   /\.sp-vertical > \.sp-text \{ flex-shrink: 0; \}/,
   '纵向 Stack 不应把 Text 压缩到原生行高以下'
 );
-assert.match(previewHTML, /7 WIDGETS/);
-assert.match(previewHTML, /id="widget-count">07</);
+assert.match(previewHTML, /id="build-widget-count">-- WIDGETS/);
+assert.match(previewHTML, /id="widget-count">--</);
 assert.deepEqual(
   core.families
     .filter(({ group }) => group === 'accessory')

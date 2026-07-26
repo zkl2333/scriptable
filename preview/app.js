@@ -9,10 +9,16 @@
   const familySwitcher = document.querySelector('#family-switcher');
   const previewViewport = document.querySelector('#preview-viewport');
   const dimensionReadout = document.querySelector('#dimension-readout');
+  const widgetCount = widgets.length;
+  const widgetCountLabel = document.querySelector('#widget-count');
+  const buildWidgetCountLabel = document.querySelector('#build-widget-count');
   const themeButton = document.querySelector('#theme-button');
   const refreshButton = document.querySelector('#refresh-button');
   const viewSwitch = document.querySelector('.view-switch');
   let renderSequence = 0;
+
+  widgetCountLabel.textContent = String(widgetCount).padStart(2, '0');
+  buildWidgetCountLabel.textContent = `${widgetCount} WIDGETS`;
 
   const getStoredAppearance = () => {
     try {

@@ -497,6 +497,8 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
 .sp-spacer { display: block; flex-shrink: 0; }
 .sp-image { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; line-height: 1; }
 .sp-image img, .sp-image svg { display: block; width: 100%; height: 100%; object-fit: contain; }
+.sp-image--fill img, .sp-image--fill svg { object-fit: cover; }
+.sp-image--container-shape { border-radius: 22px; }
 .sp-symbol { display: grid; width: 100%; height: 100%; place-items: center; color: inherit; font-family: -apple-system, 'Segoe UI Symbol', sans-serif; font-size: min(1em, 16px); }
 .sp-symbol-svg { display: block; width: 100%; height: 100%; }
 .sp-symbol-fallback { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed currentColor; font-family: var(--mono-font); font-size: 0.68em; font-weight: 700; line-height: 1; opacity: 0.72; }
@@ -504,6 +506,11 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
 .sp-widget-background > svg { width: 100%; height: 100%; }
 .sp-drawn-background { display: block; }
 .sp-widget.is-accessory .sp-runtime-root { background: transparent; }
+.sp-widget.is-accessory .sp-runtime-root.sp-accessory-background {
+  border-radius: 13px;
+  background: color-mix(in srgb, currentColor 11%, transparent);
+}
+.sp-widget.is-dark.is-accessory .sp-runtime-root.sp-accessory-background { background: rgba(255, 255, 255, 0.14); }
 .sp-widget[data-family='accessoryInline'],
 .sp-widget[data-family='accessoryCircular'],
 .sp-widget[data-family='accessoryRectangular'] { border-radius: 0; box-shadow: none; }

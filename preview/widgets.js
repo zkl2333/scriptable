@@ -6,6 +6,9 @@
 
   const widgets = [
     { id: 'hitokoto', name: '一言', category: '灵感', icon: '❞' },
+    { id: 'render-api-lab', name: '渲染 API 实验室', category: '实验', icon: '◉' },
+    { id: 'draw-context-lab', name: '绘图上下文', category: '实验', icon: '✦' },
+    { id: 'accessory-lab', name: '锁屏组件实验室', category: '实验', icon: '◌' },
     { id: 'ikuai', name: '爱快路由器', category: '网络', icon: '↕' },
     { id: 'milk-tea-reminder', name: '奶茶提醒', category: '生活', icon: '🧋' },
     { id: 'time-progress', name: '时间进度', category: '效率', icon: '◴' },
