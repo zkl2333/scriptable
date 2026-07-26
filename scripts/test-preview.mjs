@@ -7,6 +7,10 @@ await import('../preview/ir.js');
 await import('../preview/measure.js');
 await import('../preview/layout.js');
 await import('../preview/runtime.js');
+await import('../src/widgets/hitokoto.mock.js');
+await import('../src/widgets/ikuai.mock.js');
+await import('../src/widgets/xlyra.mock.js');
+await import('../src/widgets/work-helper.mock.js');
 await import('../preview/widgets.js');
 
 const core = globalThis.ScriptablePreviewCore;

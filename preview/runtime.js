@@ -226,8 +226,7 @@
     } else if (image.kind === 'draw') {
       content = renderDrawImage(image, '', pick);
     } else if (image.kind === 'remote') {
-      const source = image.url.includes('ikuai64.ico') ? '../image/ikuai64.ico' : image.url;
-      content = `<img src="${escapeAttribute(source)}" alt="">`;
+      content = `<img src="${escapeAttribute(image.url)}" alt="">`;
     } else {
       content = '<span class="sp-symbol" aria-hidden="true">◆</span>';
     }
@@ -377,130 +376,17 @@
     return () => clearInterval(handle);
   };
 
+  // 组件假数据由各自的 src/widgets/<id>.mock.js 注册到全局 ScriptablePreviewMocks，
+  // 运行时只负责按 scriptId 查找并调用；未匹配的请求直接抛错，提示缺少 mock。
   const createFixtureResponse = (scriptId, url, request, now) => {
-    if (url.includes('hitokoto.cn')) return '慢一点，也是在向前走。';
-    if (url.includes('ikuai64.ico')) return { __kind: 'remote', url };
-
-    if (scriptId === 'ikuai') {
-      if (url.endsWith('/Action/login')) {
-        request.response = { cookies: [{ name: 'sess_key', value: 'preview-session' }] };
-        return { Result: 10000 };
-      }
-      if (url.endsWith('/Action/call')) {
-        const body = JSON.parse(request.body || '{}');
-        if (body.func_name === 'homepage') {
-          return {
-            code: 0,
-            results: {
-              sysstat: {
-                cpu: ['17%', '19%', '18%', '18%'],
-                memory: { used: '42%' },
-                cputemp: ['51°C'],
-                online_user: { count: 28 },
-                stream: {
-                  upload: 9017754,
-                  download: 44879053,
-                  total_up: 51754355916,
-                  total_down: 255980050842,
-                  connect_num: 386,
-                  uptime: 1572480,
-                },
-              },
-            },
-          };
-        }
-        return {
-          code: 0,
-          results: {
-            snapshoot_wan: [{
-              default_route: 1,
-              internet: 4,
-              ip_addr: '192.0.2.18',
-              interface: 'wan1',
-              updatetime: 1572480,
-            }],
-          },
-        };
-      }
+    const mock = (global.ScriptablePreviewMocks || {})[scriptId];
+    const response = mock && typeof mock.respond === 'function'
+      ? mock.respond(url, request, now)
+      : undefined;
+    if (response === undefined) {
+      throw new Error(`预览运行时缺少请求数据：${scriptId} ${url}（请在 src/widgets/${scriptId}.mock.js 中补充）`);
     }
-
-    if (scriptId === 'xlyra') {
-      if (url.includes('/dashboard/epaper-summary')) {
-        return {
-          date: now.toISOString().slice(0, 10),
-          kpis: {
-            today_cost: 12.84,
-            total_cost: 5140.59,
-            today_tokens: 224400000,
-            today_requests: 2237,
-            rpm_used: 1,
-            tpm_used: 605000,
-          },
-          model_top3_today: [
-            { model_key: 'gpt-5.6-sol', cost: 430.79 },
-            { model_key: 'gpt-5.6-terra', cost: 11.33 },
-            { model_key: 'gpt-5.6-luna', cost: 0.6883 },
-          ],
-          codex_quota: { account_count: 0 },
-        };
-      }
-      if (url.includes('/health/sites')) {
-        return {
-          items: [
-            ['api-prod', 42, 'healthy'],
-            ['gateway', 68, 'healthy'],
-            ['edge-tokyo', 91, 'healthy'],
-            ['codex', 0, 'offline'],
-            ['claude', 0, 'offline'],
-            ['gemini', 0, 'offline'],
-            ['vertex', 0, 'offline'],
-          ].map(([name, latency, status], index) => ({
-            site: { id: index + 1, name, enabled: true },
-            health: { status, recent_avg_latency_ms: latency },
-          })),
-        };
-      }
-      if (url.includes('/api-keys')) {
-        return { items: Array.from({ length: 6 }, (_, index) => ({ id: index + 1, status: 'active' })) };
-      }
-      if (url.includes('/requests?')) return { meta: { total: 74 } };
-      if (url.includes('/dashboard/usage')) {
-        return {
-          charts: {
-            daily_site_cost: Array.from({ length: 7 }, (_, index) => ({
-              date: now.toISOString().slice(0, 10),
-              site_id: index + 1,
-              cost: [3.12, 2.7, 2.14, 1.92, 1.68, 1.28, 0.96][index],
-            })),
-          },
-        };
-      }
-    }
-
-    if (scriptId === 'work-helper' && url.includes('timor.tech')) {
-      const pad = (value) => String(value).padStart(2, '0');
-      const formatDate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-      if (url.includes('/holiday/info/')) return { type: { name: '工作日', type: 0 } };
-      if (url.includes('/workday/next/')) {
-        const next = new Date(now);
-        next.setDate(next.getDate() + (next.getDay() === 5 ? 3 : 1));
-        return { workday: { date: formatDate(next) } };
-      }
-      if (url.includes('/holiday/next/')) {
-        const holiday = new Date(now);
-        holiday.setDate(holiday.getDate() + 14);
-        return { holiday: { name: '周末', date: formatDate(holiday) } };
-      }
-      if (url.includes('/holiday/batch')) {
-        const types = {};
-        for (const value of new URL(url).searchParams.getAll('d')) {
-          types[value] = { type: 0, name: '工作日' };
-        }
-        return { type: types };
-      }
-    }
-
-    throw new Error(`预览运行时缺少请求数据：${url}`);
+    return response;
   };
 
   const createSandbox = ({ scriptId, family, appearance, now }) => {
@@ -927,15 +813,14 @@
       }
     }
 
+    // 通用项由运行时预置；组件专属凭据由各自 mock 模块的 keychain 字段注入。
     const keychainValues = new Map([
       [`zkl2333.widgetUpdater.${scriptId}.checkedAt`, String(Math.floor(nowMilliseconds / 1000))],
-      ['ikuai_username', 'preview'],
-      ['ikuai_password', 'preview'],
-      ['ikuai_host', '127.0.0.1'],
-      ['ikuai_port', '80'],
-      ['xlyra.baseURL', 'http://preview.local'],
-      ['xlyra.adminToken', 'preview-token'],
     ]);
+    const mockKeychain = ((global.ScriptablePreviewMocks || {})[scriptId] || {}).keychain || {};
+    for (const [key, value] of Object.entries(mockKeychain)) {
+      keychainValues.set(key, String(value));
+    }
     const fileValues = new Map();
     const FileManager = {
       local: () => ({
