@@ -128,10 +128,12 @@
 
     const stackPadding = (node) => node.padding || { top: 0, right: 0, bottom: 0, left: 0 };
     const stackGap = (node) => (Number(node.spacing) > 0 ? Number(node.spacing) : 0);
+    // border-box：边框与内边距一样侵占内容空间，两轴各 2×borderWidth
+    const stackBorder = (node) => (Number(node.borderWidth) > 0 ? Number(node.borderWidth) : 0);
     const mainPad = (node, pad) =>
-      (node.contentDirection === 'vertical' ? pad.top + pad.bottom : pad.left + pad.right);
+      (node.contentDirection === 'vertical' ? pad.top + pad.bottom : pad.left + pad.right) + 2 * stackBorder(node);
     const crossPad = (node, pad) =>
-      (node.contentDirection === 'vertical' ? pad.left + pad.right : pad.top + pad.bottom);
+      (node.contentDirection === 'vertical' ? pad.left + pad.right : pad.top + pad.bottom) + 2 * stackBorder(node);
 
     const fixedMain = (node) => {
       const size = node.size || {};
@@ -163,12 +165,12 @@
         }
         return { min, ideal, cross: cross + crossPad(node, pad) };
       }
-      // 与父级垂直：extent = 子元素在 axis 上的最大 extent + 该轴上的内边距
+      // 与父级垂直：extent = 子元素在 axis 上的最大 extent + 该轴上的内边距与边框
       let extent = 0;
       for (const child of children) {
         extent = Math.max(extent, probe(child, axis, direction, null, formatText).ideal);
       }
-      extent += direction === 'vertical' ? pad.left + pad.right : pad.top + pad.bottom;
+      extent += crossPad(node, pad);
       const fixed = fixedCross(node);
       const value = fixed ?? extent;
       return { min: value, ideal: value, cross: 0 };

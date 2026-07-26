@@ -463,6 +463,36 @@ const aspectLaidBody = runtime.renderWidgetTree(aspectTree, {
 });
 assert.match(aspectLaidBody, /width:24px;height:12px/, '布局引擎路径应使用同一纵横比推导');
 
+const borderFixture = `
+const widget = new ListWidget();
+const row = widget.addStack();
+const card = row.addStack();
+card.layoutVertically();
+card.setPadding(5, 7, 5, 7);
+card.borderWidth = 1;
+const t = card.addText('AB');
+t.font = Font.systemFont(15);
+Script.setWidget(widget);
+Script.complete();
+`;
+const borderTree = await runtime.executeSource({
+  source: borderFixture,
+  scriptId: 'border-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+// 近似测量 'AB' @15px = 16.5；border-box 下盒子宽度 = 16.5 + padding 14 + border 2
+const borderBody = runtime.renderWidgetTree(borderTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.match(
+  borderBody,
+  /class="sp-node sp-stack sp-vertical" style="[^"]*width:32\.5px/,
+  '布局引擎应把 border 计入内容空间侵占（16.5 + 14 + 2×1）'
+);
+
 // 全部真实组件走布局引擎路径的冒烟测试（浏览器路径与之一致）
 for (const widget of widgets) {
   const source = await readFile(new URL(`../dist/${widget.id}.js`, import.meta.url), 'utf8');
