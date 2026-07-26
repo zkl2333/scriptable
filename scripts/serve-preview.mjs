@@ -8,6 +8,7 @@ const rootDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const previewDir = resolve(rootDir, 'preview');
 const imageDir = resolve(rootDir, 'image');
 const distDir = resolve(rootDir, 'dist');
+const srcWidgetsDir = resolve(rootDir, 'src', 'widgets');
 const port = Number(process.env.PREVIEW_PORT || 4175);
 const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -34,7 +35,9 @@ const server = createServer(async (request, response) => {
       ? [imageDir, pathname.slice('/image'.length)]
       : pathname.startsWith('/dist/')
         ? [distDir, pathname.slice('/dist'.length)]
-        : [previewDir, pathname === '/' ? '/index.html' : pathname];
+        : pathname.startsWith('/src/widgets/')
+          ? [srcWidgetsDir, pathname.slice('/src/widgets'.length)]
+          : [previewDir, pathname === '/' ? '/index.html' : pathname];
     const filePath = resolveSafePath(baseDir, relativePath);
     if (!filePath || !existsSync(filePath)) {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
