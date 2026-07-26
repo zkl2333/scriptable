@@ -30,7 +30,7 @@ const widgets = [
   { name: 'work-helper', version: '2.2.0', iconColor: 'teal', iconGlyph: 'magic' },
   { name: 'xlyra', version: '1.8.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
   { name: 'cyber-clock', version: '1.0.0', iconColor: 'green', iconGlyph: 'terminal' },
-  { name: 'pixel-pet', version: '1.0.0', iconColor: 'pink', iconGlyph: 'paw-print' },
+  { name: 'pixel-pet', version: '1.0.1', iconColor: 'pink', iconGlyph: 'paw-print' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>

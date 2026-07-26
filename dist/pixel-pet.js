@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: pink; icon-glyph: paw-print;
 // @script-id pixel-pet
-// @version 1.0.0
+// @version 1.0.1
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -276,7 +276,7 @@ var drawBitmap = (context, rows, originX, originY, scale, palette) => {
 // src/widgets/pixel-pet.js
 var updater = createUpdater({
   scriptId: "pixel-pet",
-  version: "1.0.0",
+  version: "1.0.1",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/pixel-pet.js"
 });
 await updater.autoUpdate();
@@ -302,26 +302,28 @@ var SPECIES = [
       K: new Color("#0F766E"),
       B: new Color("#5EEAD4"),
       E: new Color("#134E4A"),
-      R: new Color("#FB7185")
+      W: new Color("#FFFFFF"),
+      R: new Color("#FB7185"),
+      M: new Color("#134E4A")
     },
-    blink: { 5: ".KBBBBBBBBBBBBK." },
+    blink: { 6: ".KBBBBBBBBBBBBK." },
     rows: [
       "................",
-      ".....KKKKKK.....",
-      "...KKBBBBBBKK...",
-      "..KBBBBBBBBBBK..",
-      ".KBBBBBBBBBBBBK.",
+      "......KK........",
+      ".....KBBK.......",
+      ".....KBBBK......",
+      "....KBBBBBK.....",
+      "..KKBBBBBBBKK...",
+      ".KBBBBBBBBBBBK..",
+      ".KBBWEBBBBWEBBK.",
       ".KBBEEBBBBEEBBK.",
-      "KBBBEEBBBBEEBBBK",
-      "KBRRBBBBBBBBRRBK",
-      "KBBBBBBEEBBBBBBK",
-      "KBBBBBEBBEBBBBBK",
-      "KBBBBBBEEBBBBBBK",
+      ".KBRRBBBBBBRRBK.",
+      ".KBBBBBMMBBBBBK.",
+      ".KBBBBBBBBBBBBK.",
       ".KBBBBBBBBBBBBK.",
       "..KBBBBBBBBBBK..",
-      "...KKBBBBBBKK...",
-      ".....KKKKKK.....",
-      "................"
+      "...KBBBBBBBBK...",
+      "....KKKKKKKK...."
     ]
   },
   {
@@ -617,7 +619,7 @@ var createWidget = (family = config.widgetFamily || "medium") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "像素宠物",
-    version: "1.0.0",
+    version: "1.0.1",
     updater,
     previewFamilies: PREVIEW_FAMILIES
   });
