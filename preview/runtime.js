@@ -206,6 +206,8 @@
     const style = styleText({
       width: `${width}px`,
       height: `${height}px`,
+      // 固定尺寸视图不接受主轴压缩（SwiftUI frame 语义）
+      flexShrink: 0,
       color,
       opacity: node.imageOpacity === 1 ? null : node.imageOpacity,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
@@ -238,33 +240,31 @@
     const minimumScaleFactor = Number.isFinite(styling.minimumScaleFactor)
       ? Math.min(1, Math.max(0.01, Number(styling.minimumScaleFactor)))
       : null;
+    // 官方文档：lineLimit ≤ 0 时禁用（默认 0）。
+    const lineLimit = Number(styling.lineLimit) > 0 ? Number(styling.lineLimit) : null;
     const style = styleText({
       ...fontStyles(styling.font),
       color: colorToCSS(styling.textColor),
       opacity: styling.textOpacity,
       textAlign: node.horizontalTextAlignment,
-      WebkitLineClamp: styling.lineLimit || null,
+      WebkitLineClamp: lineLimit,
       textShadow: styling.shadowRadius
         ? `${Number(styling.shadowOffset?.x) || 0}px ${Number(styling.shadowOffset?.y) || 0}px ${styling.shadowRadius}px ${colorToCSS(styling.shadowColor) || '#000000'}`
         : null,
     });
     const classes = ['sp-node', 'sp-text'];
-    if (styling.lineLimit) classes.push('sp-text--clamped');
-    if (styling.lineLimit === 1) classes.push('sp-text--single-line');
+    if (lineLimit) classes.push('sp-text--clamped');
+    if (lineLimit === 1) classes.push('sp-text--single-line');
     const scaleAttributes = minimumScaleFactor && styling.font
       ? ` data-font-size="${styling.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
       : '';
     return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}>${escapeHTML(value)}</span>`;
   };
 
-  const renderSpacer = (node, direction) => {
-    const fixed = Number.isFinite(node.length);
-    const style = fixed
-      ? direction === 'vertical'
-        ? `height:${node.length}px;min-height:${node.length}px`
-        : `width:${node.length}px;min-width:${node.length}px`
-      : 'flex:1 1 0';
-    return `<span class="sp-node sp-spacer" style="${style}"></span>`;
+  const renderSpacer = (node) => {
+    // SwiftUI Spacer(minLength:)：始终可以伸展，最小长度 = length ?? 系统默认间距（≈8pt）。
+    const basis = Number.isFinite(node.length) ? node.length : 8;
+    return `<span class="sp-node sp-spacer" style="flex:1 0 ${basis}px"></span>`;
   };
 
   const containsFlexibleSpacer = (node, direction) => (node.elements || []).some((child) => {
@@ -284,7 +284,11 @@
       containsFlexibleSpacer(node, parentDirection);
     const style = styleText({
       flexDirection: direction === 'vertical' ? 'column' : 'row',
-      alignItems: STACK_ALIGNMENT_TO_CSS[node.alignment] || 'stretch',
+      // 官方文档：topAlignContent 是默认对齐。horizontal stack 映射交叉轴；
+      // vertical stack 的 top/center/bottom 是主轴概念，映射 justify-content，
+      // 交叉轴保持 stretch 铺满（Scriptable 未暴露水平内容对齐）。
+      alignItems: direction === 'horizontal' ? (STACK_ALIGNMENT_TO_CSS[node.alignment] || 'flex-start') : 'stretch',
+      justifyContent: direction === 'vertical' ? STACK_ALIGNMENT_TO_CSS[node.alignment] || null : null,
       padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
       width: root ? '100%' : width,
       height: root ? '100%' : height,
@@ -303,7 +307,7 @@
       if (child.type === 'stack') return renderContainer(child, now, false, direction);
       if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now);
       if (child.type === 'image') return renderImageNode(child);
-      if (child.type === 'spacer') return renderSpacer(child, direction);
+      if (child.type === 'spacer') return renderSpacer(child);
       return '';
     }).join('');
     const classes = ['sp-node', root ? 'sp-runtime-root' : 'sp-stack', `sp-${direction}`];

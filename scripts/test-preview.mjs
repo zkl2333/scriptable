@@ -239,6 +239,60 @@ assert.match(
   '含纵向弹性 Spacer 的纵向子 Stack 应占据父级剩余空间'
 );
 
+const semanticsFixture = `
+const widget = new ListWidget();
+const row = widget.addStack();
+row.addText('L');
+row.addSpacer(10);
+row.addText('R');
+const column = widget.addStack();
+column.layoutVertically();
+column.centerAlignContent();
+column.addSpacer();
+const unlimited = column.addText('不限制行数');
+unlimited.lineLimit = -2;
+const context = new DrawContext();
+context.size = new Size(20, 20);
+const image = widget.addImage(context.getImage());
+image.imageSize = new Size(24, 24);
+Script.setWidget(widget);
+Script.complete();
+`;
+const semanticsTree = await runtime.executeSource({
+  source: semanticsFixture,
+  scriptId: 'semantics-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const semanticsBody = runtime.renderWidgetTree(semanticsTree, { now: fixedNow });
+assert.match(
+  semanticsBody,
+  /class="sp-node sp-stack sp-horizontal" style="[^"]*align-items:flex-start/,
+  '水平 Stack 默认顶部对齐（官方 topAlignContent 为默认）'
+);
+assert.match(
+  semanticsBody,
+  /class="sp-node sp-stack sp-vertical" style="[^"]*justify-content:center/,
+  '纵向 Stack 的 centerAlignContent 应映射主轴 justify-content'
+);
+assert.match(
+  semanticsBody,
+  /class="sp-node sp-spacer" style="flex:1 0 10px"/,
+  'addSpacer(n) 应可伸展且最小长度为 n'
+);
+assert.match(
+  semanticsBody,
+  /class="sp-node sp-spacer" style="flex:1 0 8px"/,
+  'addSpacer() 最小长度应为系统默认间距（≈8pt）'
+);
+assert.doesNotMatch(semanticsBody, /sp-text--clamped/, 'lineLimit ≤ 0 应禁用行数限制');
+assert.match(
+  semanticsBody,
+  /class="sp-node sp-image" style="[^"]*flex-shrink:0/,
+  '固定尺寸图片不应被主轴压缩'
+);
+
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);
 assert.match(
