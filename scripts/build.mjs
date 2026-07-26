@@ -29,6 +29,7 @@ const widgets = [
   { name: 'today-dashboard', version: '1.0.0', iconColor: 'blue', iconGlyph: 'calendar-day' },
   { name: 'work-helper', version: '2.2.0', iconColor: 'teal', iconGlyph: 'magic' },
   { name: 'xlyra', version: '1.8.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
+  { name: 'cyber-clock', version: '1.0.0', iconColor: 'green', iconGlyph: 'terminal' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>
