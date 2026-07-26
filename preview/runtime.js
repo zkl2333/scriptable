@@ -56,9 +56,9 @@
   const fontStyles = (font) => {
     if (!font) return {};
     const family = font.family === 'monospace'
-      ? "'Cascadia Mono','SFMono-Regular',Consolas,monospace"
+      ? "ui-monospace,'SFMono-Regular',Menlo,Monaco,Consolas,monospace"
       : font.family === 'rounded'
-        ? "'Arial Rounded MT Bold','Segoe UI Variable',sans-serif"
+        ? "ui-rounded,'SF Pro Rounded',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
         : "-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif";
     return {
       fontFamily: family,
@@ -173,6 +173,9 @@
         ? formatRelativeDate(node.value, now)
         : node.value.toLocaleString('zh-CN')
       : node.value;
+    const minimumScaleFactor = Number.isFinite(node.minimumScaleFactor)
+      ? Math.min(1, Math.max(0.01, Number(node.minimumScaleFactor)))
+      : null;
     const style = styleText({
       ...fontStyles(node.font),
       color: colorToCSS(node.textColor),
@@ -182,7 +185,11 @@
     });
     const classes = ['sp-node', 'sp-text'];
     if (node.lineLimit) classes.push('sp-text--clamped');
-    return `<span class="${classes.join(' ')}" style="${style}">${escapeHTML(value)}</span>`;
+    if (node.lineLimit === 1) classes.push('sp-text--single-line');
+    const scaleAttributes = minimumScaleFactor && node.font
+      ? ` data-font-size="${node.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
+      : '';
+    return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}>${escapeHTML(value)}</span>`;
   };
 
   const renderSpacer = (node, direction) => {
@@ -195,19 +202,21 @@
     return `<span class="sp-node sp-spacer" style="${style}"></span>`;
   };
 
-  const containsFlexibleSpacer = (node) => (node.children || []).some((child) =>
-    child.kind === 'spacer' && !Number.isFinite(child.length)
-      ? true
-      : child.kind === 'stack' && containsFlexibleSpacer(child)
-  );
+  const containsFlexibleSpacer = (node, direction) => (node.children || []).some((child) => {
+    if (child.kind === 'spacer') {
+      return node.direction === direction && !Number.isFinite(child.length);
+    }
+    return child.kind === 'stack' && containsFlexibleSpacer(child, direction);
+  });
 
   const renderContainer = (node, now, root = false, parentDirection = null) => {
     const direction = node.direction || (root ? 'vertical' : 'horizontal');
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
     const background = gradientToCSS(node.backgroundGradient) || colorToCSS(node.backgroundColor);
-    const flexChild = !root && node.kind === 'stack' && parentDirection === 'horizontal' &&
-      !width && !height && containsFlexibleSpacer(node);
+    const mainSize = parentDirection === 'horizontal' ? width : height;
+    const flexChild = !root && node.kind === 'stack' && !mainSize &&
+      containsFlexibleSpacer(node, parentDirection);
     const style = styleText({
       flexDirection: direction === 'vertical' ? 'column' : 'row',
       alignItems: node.contentAlignment || 'stretch',
@@ -215,7 +224,7 @@
       width: root ? '100%' : width,
       height: root ? '100%' : height,
       flex: flexChild || (!root && node.size && !width && !height) ? '1 1 0' : null,
-      flexShrink: width || height ? 0 : null,
+      flexShrink: mainSize ? 0 : null,
       gap: Number.isFinite(node.spacing) ? `${node.spacing}px` : null,
       background,
       border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor)}` : null,

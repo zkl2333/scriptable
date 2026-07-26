@@ -488,10 +488,12 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
   white-space: pre-wrap;
 }
 .sp-horizontal > .sp-text { align-self: center; white-space: pre; }
+.sp-vertical > .sp-text { flex-shrink: 0; }
 .sp-text--clamped {
   display: -webkit-box;
   -webkit-box-orient: vertical;
 }
+.sp-text--single-line { white-space: pre; }
 .sp-spacer { display: block; flex-shrink: 0; }
 .sp-image { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; line-height: 1; }
 .sp-image img, .sp-image svg { display: block; width: 100%; height: 100%; object-fit: contain; }

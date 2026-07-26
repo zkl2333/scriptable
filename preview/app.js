@@ -82,6 +82,33 @@
       </div>
     </div>`;
 
+  const fitMinimumScaleText = () => {
+    document.querySelectorAll('.sp-text[data-minimum-scale-factor]').forEach((element) => {
+      const baseSize = Number(element.dataset.fontSize);
+      const minimumFactor = Number(element.dataset.minimumScaleFactor);
+      if (!baseSize || !minimumFactor) return;
+
+      element.style.fontSize = `${baseSize}px`;
+      if (element.scrollWidth <= element.clientWidth + 0.5) return;
+
+      let smallest = baseSize * minimumFactor;
+      let largest = baseSize;
+      element.style.fontSize = `${smallest}px`;
+      if (element.scrollWidth > element.clientWidth + 0.5) return;
+
+      for (let iteration = 0; iteration < 8; iteration++) {
+        const candidate = (smallest + largest) / 2;
+        element.style.fontSize = `${candidate}px`;
+        if (element.scrollWidth <= element.clientWidth + 0.5) {
+          smallest = candidate;
+        } else {
+          largest = candidate;
+        }
+      }
+      element.style.fontSize = `${smallest}px`;
+    });
+  };
+
   const renderOverview = async (state) => {
     const entries = await Promise.all(engine.getWidgets().map(async (widget, index) => {
       try {
@@ -123,6 +150,7 @@
   };
 
   const fitPreviews = () => {
+    fitMinimumScaleText();
     document.querySelectorAll('.preview-stage').forEach((stage) => {
       const familyId = stage.dataset.family;
       const family = core.getFamily(familyId);

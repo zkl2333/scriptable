@@ -10,6 +10,7 @@ const core = globalThis.ScriptablePreviewCore;
 const runtime = globalThis.ScriptablePreviewRuntime;
 const widgets = globalThis.ScriptablePreviewWidgets;
 const previewStyles = await readFile(new URL('../preview/styles.css', import.meta.url), 'utf8');
+const previewHTML = await readFile(new URL('../preview/index.html', import.meta.url), 'utf8');
 
 assert.ok(core);
 assert.ok(runtime);
@@ -115,6 +116,37 @@ assert.match(workHelperBody, /class="sp-symbol-svg"/);
 assert.match(workHelperBody, /viewBox="0 0 256 256"/);
 assert.doesNotMatch(workHelperBody, /sp-symbol-fallback/);
 
+const layoutFixture = `
+const widget = new ListWidget();
+const column = widget.addStack();
+column.layoutVertically();
+const rounded = column.addText('一段很长的原生圆体文本');
+rounded.font = Font.semiboldRoundedSystemFont(20);
+rounded.lineLimit = 1;
+rounded.minimumScaleFactor = 0.6;
+column.addSpacer();
+const monospaced = column.addText('MONO');
+monospaced.font = Font.regularMonospacedSystemFont(10);
+Script.setWidget(widget);
+Script.complete();
+`;
+const layoutTree = await runtime.executeSource({
+  source: layoutFixture,
+  scriptId: 'layout-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const layoutBody = runtime.renderWidgetTree(layoutTree, { now: fixedNow });
+assert.match(layoutBody, /ui-rounded/);
+assert.match(layoutBody, /ui-monospace/);
+assert.match(layoutBody, /data-font-size="20" data-minimum-scale-factor="0.6"/);
+assert.match(
+  layoutBody,
+  /class="sp-node sp-stack sp-vertical" style="[^"]*flex:1 1 0/,
+  '含纵向弹性 Spacer 的纵向子 Stack 应占据父级剩余空间'
+);
+
 assert.equal(core.calculatePreviewScale('medium', 338, 158), 1);
 assert.equal(core.calculatePreviewScale('extraLarge', 360, 169), 0.5);
 assert.match(
@@ -122,6 +154,13 @@ assert.match(
   /\.sp-horizontal > \.sp-text \{ align-self: center; white-space: pre; \}/,
   '横向 Text 节点必须保留脚本中的首尾空格'
 );
+assert.match(
+  previewStyles,
+  /\.sp-vertical > \.sp-text \{ flex-shrink: 0; \}/,
+  '纵向 Stack 不应把 Text 压缩到原生行高以下'
+);
+assert.match(previewHTML, /7 WIDGETS/);
+assert.match(previewHTML, /id="widget-count">07</);
 assert.deepEqual(
   core.families
     .filter(({ group }) => group === 'accessory')
