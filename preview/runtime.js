@@ -3,8 +3,10 @@
 
   const sourceCache = new Map();
   const symbols = global.ScriptablePreviewSymbols;
+  const ir = global.ScriptablePreviewIR;
 
   if (!symbols) throw new Error('请先加载 preview/symbols.js');
+  if (!ir) throw new Error('请先加载 preview/ir.js');
 
   const escapeHTML = (value) =>
     String(value ?? '')
@@ -100,7 +102,7 @@
   const formatRelativeDate = (value, now) => {
     const milliseconds = value.getTime() - now.getTime();
     return milliseconds < 0
-      ? `${formatDuration(milliseconds).replace(/^/, '')}前`
+      ? `${formatDuration(milliseconds)}前`
       : formatDuration(milliseconds);
   };
 
@@ -170,6 +172,9 @@
           ` font-family="${font.family === 'monospace' ? 'monospace' : 'sans-serif'}"` +
           ` font-weight="${font.weight}" text-anchor="${anchor}">${escapeHTML(operation.text)}</text>`;
       }
+      if (operation.type === 'image' && operation.image?.kind === 'symbol') {
+        return renderSymbolSVG(operation.image, rect, fill, operation.image.font);
+      }
       if (operation.type === 'image' && operation.image?.__kind === 'symbol') {
         return renderSymbolSVG(operation.image, rect, fill, operation.image.font);
       }
@@ -190,30 +195,32 @@
     return `linear-gradient(${angle}deg,${stops.join(',')})`;
   };
 
+  const STACK_ALIGNMENT_TO_CSS = { top: 'flex-start', center: 'center', bottom: 'flex-end' };
+
   const renderImageNode = (node) => {
-    const image = node.image || {};
+    const image = node.codableImage || {};
     const naturalSize = image.size || { width: 16, height: 16 };
     const width = Number(node.imageSize?.width) || Number(naturalSize.width) || 16;
     const height = Number(node.imageSize?.height) || Number(naturalSize.height) || 16;
-    const color = colorToCSS(node.tintColor || node.imageColor) || 'currentColor';
+    const color = colorToCSS(node.tintColor) || 'currentColor';
     const style = styleText({
       width: `${width}px`,
       height: `${height}px`,
       color,
-      opacity: node.imageOpacity,
+      opacity: node.imageOpacity === 1 ? null : node.imageOpacity,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
       border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor) || '#000000'}` : null,
-      alignSelf: node.alignment === 'center' ? 'center' : node.alignment === 'right' ? 'flex-end' : null,
+      alignSelf: node.imageAlignment === 'center' ? 'center' : node.imageAlignment === 'right' ? 'flex-end' : null,
     });
     let content;
-    if (image.__kind === 'symbol') {
+    if (image.kind === 'symbol') {
       content = renderSymbol(
         image.name,
         `class="sp-symbol-svg" role="img" aria-label="${escapeAttribute(image.name)}"`
       );
-    } else if (image.__kind === 'draw') {
+    } else if (image.kind === 'draw') {
       content = renderDrawImage(image);
-    } else if (image.__kind === 'remote') {
+    } else if (image.kind === 'remote') {
       const source = image.url.includes('ikuai64.ico') ? '../image/ikuai64.ico' : image.url;
       content = `<img src="${escapeAttribute(source)}" alt="">`;
     } else {
@@ -222,29 +229,30 @@
     const classes = ['sp-node', 'sp-image'];
     if (node.contentMode === 'fill') classes.push('sp-image--fill');
     if (node.containerRelativeShape) classes.push('sp-image--container-shape');
-    return `<span class="${classes.join(' ')}" style="${style}"${node.url ? ` data-url="${escapeAttribute(node.url)}"` : ''}>${content}</span>`;
+    return `<span class="${classes.join(' ')}" style="${style}"${node.rawOpenURL ? ` data-url="${escapeAttribute(node.rawOpenURL)}"` : ''}>${content}</span>`;
   };
 
   const renderTextNode = (node, now) => {
-    const value = node.kind === 'date' ? formatDate(node.value, now, node.dateStyle) : node.value;
-    const minimumScaleFactor = Number.isFinite(node.minimumScaleFactor)
-      ? Math.min(1, Math.max(0.01, Number(node.minimumScaleFactor)))
+    const styling = node.styling || {};
+    const value = node.type === 'date' ? formatDate(new Date(node.date), now, node.dateStyle) : node.text;
+    const minimumScaleFactor = Number.isFinite(styling.minimumScaleFactor)
+      ? Math.min(1, Math.max(0.01, Number(styling.minimumScaleFactor)))
       : null;
     const style = styleText({
-      ...fontStyles(node.font),
-      color: colorToCSS(node.textColor),
-      opacity: node.textOpacity,
-      textAlign: node.alignment,
-      WebkitLineClamp: node.lineLimit || null,
-      textShadow: node.shadowRadius
-        ? `${Number(node.shadowOffset?.x) || 0}px ${Number(node.shadowOffset?.y) || 0}px ${node.shadowRadius}px ${colorToCSS(node.shadowColor) || '#000000'}`
+      ...fontStyles(styling.font),
+      color: colorToCSS(styling.textColor),
+      opacity: styling.textOpacity,
+      textAlign: node.horizontalTextAlignment,
+      WebkitLineClamp: styling.lineLimit || null,
+      textShadow: styling.shadowRadius
+        ? `${Number(styling.shadowOffset?.x) || 0}px ${Number(styling.shadowOffset?.y) || 0}px ${styling.shadowRadius}px ${colorToCSS(styling.shadowColor) || '#000000'}`
         : null,
     });
     const classes = ['sp-node', 'sp-text'];
-    if (node.lineLimit) classes.push('sp-text--clamped');
-    if (node.lineLimit === 1) classes.push('sp-text--single-line');
-    const scaleAttributes = minimumScaleFactor && node.font
-      ? ` data-font-size="${node.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
+    if (styling.lineLimit) classes.push('sp-text--clamped');
+    if (styling.lineLimit === 1) classes.push('sp-text--single-line');
+    const scaleAttributes = minimumScaleFactor && styling.font
+      ? ` data-font-size="${styling.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
       : '';
     return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}>${escapeHTML(value)}</span>`;
   };
@@ -259,52 +267,53 @@
     return `<span class="sp-node sp-spacer" style="${style}"></span>`;
   };
 
-  const containsFlexibleSpacer = (node, direction) => (node.children || []).some((child) => {
-    if (child.kind === 'spacer') {
-      return node.direction === direction && !Number.isFinite(child.length);
+  const containsFlexibleSpacer = (node, direction) => (node.elements || []).some((child) => {
+    if (child.type === 'spacer') {
+      return node.contentDirection === direction && !Number.isFinite(child.length);
     }
-    return child.kind === 'stack' && containsFlexibleSpacer(child, direction);
+    return child.type === 'stack' && containsFlexibleSpacer(child, direction);
   });
 
   const renderContainer = (node, now, root = false, parentDirection = null) => {
-    const direction = node.direction || (root ? 'vertical' : 'horizontal');
+    const direction = node.contentDirection || (root ? 'vertical' : 'horizontal');
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
     const background = gradientToCSS(node.backgroundGradient) || colorToCSS(node.backgroundColor);
     const mainSize = parentDirection === 'horizontal' ? width : height;
-    const flexChild = !root && node.kind === 'stack' && !mainSize &&
+    const flexChild = !root && node.type === 'stack' && !mainSize &&
       containsFlexibleSpacer(node, parentDirection);
     const style = styleText({
       flexDirection: direction === 'vertical' ? 'column' : 'row',
-      alignItems: node.contentAlignment || 'stretch',
+      alignItems: STACK_ALIGNMENT_TO_CSS[node.alignment] || 'stretch',
       padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
       width: root ? '100%' : width,
       height: root ? '100%' : height,
       flex: flexChild || (!root && node.size && !width && !height) ? '1 1 0' : null,
       flexShrink: mainSize ? 0 : null,
-      gap: Number.isFinite(node.spacing) ? `${node.spacing}px` : null,
+      gap: Number.isFinite(node.spacing) && node.spacing > 0 ? `${node.spacing}px` : null,
       background,
-      border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor)}` : null,
+      border: node.borderWidth ? `${node.borderWidth}px solid ${colorToCSS(node.borderColor) || '#000000'}` : null,
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
       overflow: node.cornerRadius ? 'hidden' : null,
     });
-    const backgroundImage = node.backgroundImage?.__kind === 'draw'
+    const backgroundImage = node.backgroundImage?.kind === 'draw'
       ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background')}</span>`
       : '';
-    const children = node.children.map((child) => {
-      if (child.kind === 'stack') return renderContainer(child, now, false, direction);
-      if (child.kind === 'text' || child.kind === 'date') return renderTextNode(child, now);
-      if (child.kind === 'image') return renderImageNode(child);
-      if (child.kind === 'spacer') return renderSpacer(child, direction);
+    const children = node.elements.map((child) => {
+      if (child.type === 'stack') return renderContainer(child, now, false, direction);
+      if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now);
+      if (child.type === 'image') return renderImageNode(child);
+      if (child.type === 'spacer') return renderSpacer(child, direction);
       return '';
     }).join('');
     const classes = ['sp-node', root ? 'sp-runtime-root' : 'sp-stack', `sp-${direction}`];
     if (root && node.addAccessoryWidgetBackground) classes.push('sp-accessory-background');
-    return `<div class="${classes.join(' ')}" style="${style}"${node.url ? ` data-url="${escapeAttribute(node.url)}"` : ''}>${backgroundImage}${children}</div>`;
+    const openURL = node.rawOpenURL || node.openURL;
+    return `<div class="${classes.join(' ')}" style="${style}"${openURL ? ` data-url="${escapeAttribute(openURL)}"` : ''}>${backgroundImage}${children}</div>`;
   };
 
-  const renderWidgetTree = (widget, { now = new Date() } = {}) =>
-    renderContainer(widget, now instanceof Date ? now : new Date(now), true);
+  const renderWidgetTree = (tree, { now = new Date() } = {}) =>
+    renderContainer(tree, now instanceof Date ? now : new Date(now), true);
 
   const createFixtureResponse = (scriptId, url, request, now) => {
     if (url.includes('hitokoto.cn')) return '慢一点，也是在向前走。';
@@ -452,10 +461,14 @@
         this.__kind = 'color';
         this.hex = hex instanceof Color ? hex.hex : String(hex);
         this.alpha = Number(alpha);
+        this.dark = null;
       }
 
       static dynamic(light, dark) {
-        return appearance === 'dark' ? dark : light;
+        const resolved = appearance === 'dark' ? dark : light;
+        const fallback = appearance === 'dark' ? light : dark;
+        if (resolved instanceof Color) resolved.dark = fallback instanceof Color ? fallback : null;
+        return resolved;
       }
 
       static black() { return new Color('#000000'); }
@@ -595,78 +608,240 @@
       getImage() { return { __kind: 'draw', size: this.size, ops: [...this.ops] }; }
     }
 
-    class ContainerNode {
-      constructor(kind, direction) {
-        this.kind = kind;
-        this.direction = direction;
-        this.children = [];
+    // ------------------------------------------------------------------
+    // JS API 层：组件元素构建器。
+    // 脚本通过属性赋值与方法调用描述组件；toIR() 时物化为纯数据 IR
+    // （字段对齐 preview/ir.js 定义的序列化 Schema）。
+    // ------------------------------------------------------------------
+
+    const normalizeShadowOffset = (value) => ir.pointToIR(value) || { x: 0, y: 1 };
+
+    const textStylingToIR = (element) => ({
+      textColor: ir.colorToIR(element.textColor),
+      font: ir.fontToIR(element.font),
+      textOpacity: element.textOpacity ?? null,
+      lineLimit: Number.isFinite(element.lineLimit) && element.lineLimit > 0 ? element.lineLimit : null,
+      minimumScaleFactor: Number.isFinite(element.minimumScaleFactor) ? element.minimumScaleFactor : null,
+      shadowColor: ir.colorToIR(element.shadowColor),
+      shadowRadius: Number.isFinite(element.shadowRadius) ? element.shadowRadius : null,
+      shadowOffset: element.shadowOffset ? normalizeShadowOffset(element.shadowOffset) : null,
+    });
+
+    class TextElement {
+      constructor(value) {
+        this.text = String(value);
+        this.horizontalTextAlignment = 'left';
+        this.rawOpenURL = null;
+        this.textColor = null;
+        this.font = null;
+        this.textOpacity = null;
+        this.lineLimit = null;
+        this.minimumScaleFactor = null;
+        this.shadowColor = null;
+        this.shadowRadius = null;
+        this.shadowOffset = null;
+      }
+
+      leftAlignText() { this.horizontalTextAlignment = 'left'; }
+      centerAlignText() { this.horizontalTextAlignment = 'center'; }
+      rightAlignText() { this.horizontalTextAlignment = 'right'; }
+
+      get url() { return this.rawOpenURL; }
+      set url(value) { this.rawOpenURL = value ? String(value) : null; }
+
+      toIR() {
+        const node = ir.irText();
+        node.text = this.text;
+        node.horizontalTextAlignment = this.horizontalTextAlignment;
+        node.rawOpenURL = this.rawOpenURL;
+        node.styling = textStylingToIR(this);
+        return node;
+      }
+    }
+
+    class DateElement extends TextElement {
+      constructor(value) {
+        super('');
+        this.date = value instanceof Date ? value : new PreviewDate(value);
+        this.dateStyle = 'date';
+      }
+
+      applyTimeStyle() { this.dateStyle = 'time'; }
+      applyDateStyle() { this.dateStyle = 'date'; }
+      applyRelativeStyle() { this.dateStyle = 'relative'; }
+      applyOffsetStyle() { this.dateStyle = 'offset'; }
+      applyTimerStyle() { this.dateStyle = 'timer'; }
+
+      toIR() {
+        const node = ir.irDate(this.date);
+        node.horizontalTextAlignment = this.horizontalTextAlignment;
+        node.rawOpenURL = this.rawOpenURL;
+        node.dateStyle = this.dateStyle;
+        node.styling = textStylingToIR(this);
+        return node;
+      }
+    }
+
+    class ImageElement {
+      constructor(image) {
+        this.image = image;
+        this.imageAlignment = 'left';
+        this.rawOpenURL = null;
+        this.resizable = true;
+        this.contentMode = 'fit';
+        this.imageOpacity = null;
+        this.imageSize = null;
+        this.cornerRadius = 0;
+        this.containerRelativeShape = false;
+        this.borderWidth = 0;
+        this.borderColor = null;
+        this.tintColor = null;
+      }
+
+      leftAlignImage() { this.imageAlignment = 'left'; }
+      centerAlignImage() { this.imageAlignment = 'center'; }
+      rightAlignImage() { this.imageAlignment = 'right'; }
+      applyFittingContentMode() { this.contentMode = 'fit'; }
+      applyFillingContentMode() { this.contentMode = 'fill'; }
+
+      get url() { return this.rawOpenURL; }
+      set url(value) { this.rawOpenURL = value ? String(value) : null; }
+
+      toIR() {
+        const node = ir.irImage(this.image);
+        node.resizable = this.resizable !== false;
+        node.contentMode = this.contentMode;
+        node.imageAlignment = this.imageAlignment;
+        node.imageOpacity = this.imageOpacity ?? 1;
+        node.imageSize = ir.sizeToIR(this.imageSize);
+        // 官方文档：containerRelativeShape 为 true 时忽略 cornerRadius
+        node.cornerRadius = this.containerRelativeShape ? 0 : Number(this.cornerRadius) || 0;
+        node.containerRelativeShape = Boolean(this.containerRelativeShape);
+        node.borderWidth = Number(this.borderWidth) || 0;
+        node.borderColor = ir.colorToIR(this.borderColor);
+        node.tintColor = ir.colorToIR(this.tintColor);
+        node.rawOpenURL = this.rawOpenURL;
+        return node;
+      }
+    }
+
+    class SpacerElement {
+      constructor(length) {
+        this.length = Number.isFinite(length) ? Number(length) : null;
+      }
+
+      toIR() {
+        return ir.irSpacer(this.length);
+      }
+    }
+
+    class StackContainer {
+      constructor() {
+        this.contentDirection = 'horizontal';
+        this.alignment = null;
+        this.elements = [];
+        this.backgroundColor = null;
+        this.backgroundImage = null;
+        this.backgroundGradient = null;
+        this.spacing = null;
+        this.size = null;
+        this.cornerRadius = 0;
+        this.borderWidth = 0;
+        this.borderColor = null;
+        this.padding = null;
+        this.rawOpenURL = null;
       }
 
       addStack() {
-        const child = new ContainerNode('stack', 'horizontal');
-        this.children.push(child);
+        const child = new StackContainer();
+        this.elements.push(child);
         return child;
       }
 
       addText(value) {
-        const child = { kind: 'text', value: String(value), alignment: 'left' };
-        child.leftAlignText = () => { child.alignment = 'left'; };
-        child.centerAlignText = () => { child.alignment = 'center'; };
-        child.rightAlignText = () => { child.alignment = 'right'; };
-        this.children.push(child);
+        const child = new TextElement(value);
+        this.elements.push(child);
         return child;
       }
 
       addDate(value) {
-        const child = { kind: 'date', value: new PreviewDate(value), alignment: 'left', dateStyle: 'date' };
-        child.leftAlignText = () => { child.alignment = 'left'; };
-        child.centerAlignText = () => { child.alignment = 'center'; };
-        child.rightAlignText = () => { child.alignment = 'right'; };
-        child.applyRelativeStyle = () => { child.dateStyle = 'relative'; };
-        child.applyDateStyle = () => { child.dateStyle = 'date'; };
-        child.applyTimeStyle = () => { child.dateStyle = 'time'; };
-        child.applyOffsetStyle = () => { child.dateStyle = 'offset'; };
-        child.applyTimerStyle = () => { child.dateStyle = 'timer'; };
-        this.children.push(child);
+        const child = new DateElement(value);
+        this.elements.push(child);
         return child;
       }
 
       addImage(image) {
-        const child = { kind: 'image', image, alignment: 'left' };
-        child.leftAlignImage = () => { child.alignment = 'left'; };
-        child.centerAlignImage = () => { child.alignment = 'center'; };
-        child.rightAlignImage = () => { child.alignment = 'right'; };
-        child.applyFittingContentMode = () => { child.contentMode = 'fit'; };
-        child.applyFillingContentMode = () => { child.contentMode = 'fill'; };
-        this.children.push(child);
+        const child = new ImageElement(image);
+        this.elements.push(child);
         return child;
       }
 
       addSpacer(length) {
-        const child = { kind: 'spacer', length: Number.isFinite(length) ? Number(length) : null };
-        this.children.push(child);
+        const child = new SpacerElement(length);
+        this.elements.push(child);
         return child;
       }
 
-      setPadding(top, left, bottom, right) {
-        this.padding = { top: Number(top), left: Number(left), bottom: Number(bottom), right: Number(right) };
+      setPadding(top, leading, bottom, trailing) {
+        this.padding = { top: Number(top), left: Number(leading), bottom: Number(bottom), right: Number(trailing) };
       }
 
-      useDefaultPadding() { this.padding = undefined; }
+      useDefaultPadding() { this.padding = null; }
 
-      layoutHorizontally() { this.direction = 'horizontal'; }
-      layoutVertically() { this.direction = 'vertical'; }
-      centerAlignContent() { this.contentAlignment = 'center'; }
-      topAlignContent() { this.contentAlignment = 'flex-start'; }
-      bottomAlignContent() { this.contentAlignment = 'flex-end'; }
+      layoutHorizontally() { this.contentDirection = 'horizontal'; }
+      layoutVertically() { this.contentDirection = 'vertical'; }
+      topAlignContent() { this.alignment = 'top'; }
+      centerAlignContent() { this.alignment = 'center'; }
+      bottomAlignContent() { this.alignment = 'bottom'; }
+
+      get url() { return this.rawOpenURL; }
+      set url(value) { this.rawOpenURL = value ? String(value) : null; }
+
+      containerIR(node) {
+        node.contentDirection = this.contentDirection;
+        node.alignment = this.alignment;
+        node.backgroundColor = ir.colorToIR(this.backgroundColor);
+        node.backgroundGradient = ir.gradientToIR(this.backgroundGradient);
+        node.backgroundImage = this.backgroundImage ? ir.imageToIR(this.backgroundImage) : null;
+        node.spacing = Number.isFinite(this.spacing) ? this.spacing : 0;
+        node.size = ir.sizeToIR(this.size);
+        node.cornerRadius = Number(this.cornerRadius) || 0;
+        node.borderWidth = Number(this.borderWidth) || 0;
+        node.borderColor = ir.colorToIR(this.borderColor);
+        node.padding = this.padding;
+        node.rawOpenURL = this.rawOpenURL;
+        node.elements = this.elements.map((child) => child.toIR());
+        return node;
+      }
+
+      toIR() {
+        return this.containerIR(ir.irStack());
+      }
     }
 
-    class ListWidget extends ContainerNode {
-      constructor() { super('widget', 'vertical'); }
+    class ListWidget extends StackContainer {
+      constructor() {
+        super();
+        this.contentDirection = 'vertical';
+        this.refreshAfterDate = null;
+        this.addAccessoryWidgetBackground = false;
+      }
+
       async presentSmall() {}
       async presentMedium() {}
       async presentLarge() {}
       async presentExtraLarge() {}
+
+      toIR() {
+        const node = this.containerIR(ir.irList());
+        node.openURL = node.rawOpenURL;
+        delete node.rawOpenURL;
+        node.refreshAfterDate = this.refreshAfterDate
+          ? new Date(this.refreshAfterDate).toISOString()
+          : null;
+        node.addAccessoryWidgetBackground = Boolean(this.addAccessoryWidgetBackground);
+        return node;
+      }
     }
 
     class Request {
@@ -816,6 +991,7 @@
 
   const executeSource = async ({ source, scriptId, family, appearance = 'light', now = new Date() }) => {
     if (!source || typeof source !== 'string') throw new TypeError('dist 源码不能为空');
+    ir.resetIdentifiers();
     const { sandbox, getWidget } = createSandbox({ scriptId, family, appearance, now });
     const run = new Function(
       'sandbox',
@@ -825,7 +1001,8 @@
     await run(sandbox, source);
     const widget = getWidget();
     if (!widget) throw new Error(`${scriptId} 没有调用 Script.setWidget`);
-    return widget;
+    if (typeof widget.toIR !== 'function') throw new TypeError(`${scriptId} 传给 Script.setWidget 的不是 ListWidget`);
+    return ir.validateIR(widget.toIR());
   };
 
   const loadSource = async (sourcePath) => {

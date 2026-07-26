@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 await import('../preview/core.js');
 await import('../preview/symbols.js');
+await import('../preview/ir.js');
 await import('../preview/runtime.js');
 await import('../preview/widgets.js');
 
@@ -80,6 +81,11 @@ for (const widget of widgets) {
       now: fixedNow,
     });
     const body = runtime.renderWidgetTree(tree, { now: fixedNow });
+    assert.equal(tree.type, 'list', 'executeSource 必须产出 IR 根节点');
+    assert.ok(
+      tree.elements.every((element) => typeof element.identifier === 'string'),
+      'IR 元素必须携带序列化 identifier'
+    );
     assert.match(body, /class="sp-node sp-runtime-root/);
     assert.doesNotMatch(body, /undefined|NaN/);
 
