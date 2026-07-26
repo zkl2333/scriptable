@@ -274,7 +274,7 @@
     return `<span class="${classes.join(' ')}" style="${style}"${scaleAttributes}${dateAttributes}>${escapeHTML(value)}</span>`;
   };
 
-  const renderSpacer = (node) => {
+  const renderSpacer = (node, direction) => {
     // 布局引擎已给出显式尺寸时，Spacer 退化为固定占位
     if (node._size) {
       const style = styleText({
@@ -284,9 +284,15 @@
       });
       return `<span class="sp-node sp-spacer" style="${style}"></span>`;
     }
-    // SwiftUI Spacer(minLength:)：始终可以伸展，最小长度 = length ?? 系统默认间距（≈8pt）。
-    const basis = Number.isFinite(node.length) ? node.length : 8;
-    return `<span class="sp-node sp-spacer" style="flex:1 0 ${basis}px"></span>`;
+    // 官方文档：null 长度 = 弹性（SwiftUI Spacer，最小长度 ≈ 系统默认间距）；
+    // 有限长度 = 固定间隔，不参与伸展分配。
+    if (Number.isFinite(node.length)) {
+      const style = direction === 'vertical'
+        ? `height:${node.length}px;min-height:${node.length}px`
+        : `width:${node.length}px;min-width:${node.length}px`;
+      return `<span class="sp-node sp-spacer" style="${style}"></span>`;
+    }
+    return `<span class="sp-node sp-spacer" style="flex:1 0 8px"></span>`;
   };
 
   const containsFlexibleSpacer = (node, direction) => (node.elements || []).some((child) => {
@@ -330,7 +336,7 @@
       if (child.type === 'stack') return renderContainer(child, now, pick, false, direction);
       if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now, pick);
       if (child.type === 'image') return renderImageNode(child, pick);
-      if (child.type === 'spacer') return renderSpacer(child);
+      if (child.type === 'spacer') return renderSpacer(child, direction);
       return '';
     }).join('');
     const classes = ['sp-node', root ? 'sp-runtime-root' : 'sp-stack', `sp-${direction}`];

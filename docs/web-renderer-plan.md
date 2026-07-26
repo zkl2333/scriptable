@@ -37,7 +37,7 @@ DOM 渲染器（preview/runtime.js，只消费 IR）
 | R2 | 主轴无约束时全部取理想尺寸 | 自然成立 | ✅ |
 | R3 | `spacing` 统一间距 | `gap` | ✅ |
 | R4 | 交叉轴 child 自决 + guide 对齐，无强制拉伸 | 默认 top/显式三档对齐 | ✅ |
-| R5 | Spacer：优先级 -∞，最小长度 = minLength ?? 8pt | `flex: 1 0 {n\|8}px`；布局引擎中区间 [minLength, ∞) | ✅ |
+| R5 | Spacer：官方文档语义——`addSpacer()`（null 长度）= 弹性，最小长度 ≈8pt；`addSpacer(n)` = 固定间隔，不参伸展 | 固定：`width/height`；弹性：`flex: 1 0 8px`；布局引擎区分两组 | ✅ |
 | R6 | 固定 frame：固定尺寸 + 可溢出 + 不收缩 | `width/height + flex-shrink: 0` | ✅ |
 | R7 | 图片 fit：布局尺寸 = 适配后实际显示尺寸 | `imageExtent` 单边按固有纵横比推导；remote 加载后修正未实现 | ✅（残留近似） |
 | R8 | 背景层 = ZStack 底层 | absolute 铺满 | ✅ 近似足够 |

@@ -58,8 +58,11 @@
         case 'spacer': {
           // Spacer 只沿父 stack 的主轴伸展，另一轴 extent 为 0
           if (parentDirection !== axis) return { min: 0, ideal: 0, cross: 0 };
-          const min = Number.isFinite(node.length) ? node.length : SPACER_DEFAULT_MIN;
-          return { min, ideal: Infinity, cross: 0, spacer: true };
+          // 官方文档：null 长度 = 弹性；有限长度 = 固定间隔（不参伸展分配）
+          if (Number.isFinite(node.length)) {
+            return { min: node.length, ideal: node.length, cross: 0 };
+          }
+          return { min: SPACER_DEFAULT_MIN, ideal: Infinity, cross: 0, spacer: true };
         }
         case 'image': {
           const extent = imageExtent(node);
@@ -191,11 +194,11 @@
       let takenTotal = 0;
       nonSpacers.forEach(({ item, index }, order) => {
         const proposal = groupSpace / (nonSpacers.length - order);
-        // 按需取用：不低于最小长度、不高于理想长度（固定尺寸项 min===ideal 自然不缩）；
+        // 按需取用：clamp 到 [最小, 理想]（固定尺寸项 min===ideal 绝不收缩）；
         // 带 take 的节点（如 minimumScaleFactor 文本）自行决定取用多少
         const taken = item.take
           ? item.take(proposal)
-          : Math.min(item.ideal, Math.max(proposal, Math.min(item.min, proposal)));
+          : Math.min(item.ideal, Math.max(proposal, item.min));
         result[index] = taken;
         groupSpace -= taken;
         takenTotal += taken;
@@ -203,7 +206,8 @@
       remaining -= takenTotal;
       spacers.forEach(({ item, index }, order) => {
         const proposal = remaining / (spacers.length - order);
-        const taken = Math.max(item.min, proposal);
+        // 弹性 Spacer 均分剩余；固定间隔（min===ideal）不参伸展
+        const taken = Math.min(item.ideal, Math.max(item.min, proposal));
         result[index] = taken;
         remaining -= taken;
       });
@@ -231,9 +235,12 @@
       }
       if (node.type === 'text' || node.type === 'date') {
         const info = probe(node, parentDirection, parentDirection, crossHint, formatText);
-        node._size = parentDirection === 'horizontal'
-          ? box(mainLength, info.cross)
-          : box(finiteOrNull(crossHint) ?? info.cross, mainLength);
+        // 仅在被截断时输出显式宽度：恰好等于理想宽度时，显式宽度 + overflow
+        // 会因亚像素/字体差异裁剪字形；不截断时交给自然宽度最贴近真机。
+        // 纵向文本不输出显式尺寸（CSS max-width + pre-wrap 天然处理换行）。
+        if (parentDirection === 'horizontal' && mainLength < info.ideal - 0.01) {
+          node._size = box(mainLength, info.cross);
+        }
         return;
       }
       if (node.type === 'stack') {

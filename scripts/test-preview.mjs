@@ -314,13 +314,13 @@ assert.match(
 );
 assert.match(
   semanticsBody,
-  /class="sp-node sp-spacer" style="flex:1 0 10px"/,
-  'addSpacer(n) 应可伸展且最小长度为 n'
+  /class="sp-node sp-spacer" style="width:10px;min-width:10px"/,
+  'addSpacer(n) 应为固定间隔（官方：仅 null 长度为弹性）'
 );
 assert.match(
   semanticsBody,
   /class="sp-node sp-spacer" style="flex:1 0 8px"/,
-  'addSpacer() 最小长度应为系统默认间距（≈8pt）'
+  'addSpacer() 应为弹性 Spacer，最小长度为系统默认间距（≈8pt）'
 );
 assert.doesNotMatch(semanticsBody, /sp-text--clamped/, 'lineLimit ≤ 0 应禁用行数限制');
 assert.match(
@@ -378,10 +378,10 @@ const allocationBody = runtime.renderWidgetTree(allocationTree, {
   size: { width: 158, height: 158 },
 });
 assert.match(allocationBody, />AB</, '布局引擎启用后文本内容应保留');
-assert.match(
+assert.doesNotMatch(
   allocationBody,
-  /class="sp-node sp-text" style="[^"]*width:16\.5px[^"]*">AB</,
-  '短文本（不灵活）应优先拿到完整理想宽度'
+  /width:[0-9.]+px[^"]*">AB</,
+  '短文本拿到完整理想宽度后不应输出显式宽度（避免恰好等宽时裁剪字形）'
 );
 assert.match(
   allocationBody,
