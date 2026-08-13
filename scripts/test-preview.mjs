@@ -10,6 +10,7 @@ await import('../preview/runtime.js');
 await import('../src/widgets/hitokoto.mock.js');
 await import('../src/widgets/ikuai.mock.js');
 await import('../src/widgets/xlyra.mock.js');
+await import('../src/widgets/xlyra-user.mock.js');
 await import('../src/widgets/work-helper.mock.js');
 await import('../preview/widgets.js');
 
@@ -63,11 +64,12 @@ assert.deepEqual(
     'today-dashboard',
     'work-helper',
     'xlyra',
+    'xlyra-user',
     'cyber-clock',
     'pixel-pet',
   ]
 );
-assert.equal(new Set(widgets.map(({ id }) => id)).size, 12);
+assert.equal(new Set(widgets.map(({ id }) => id)).size, 13);
 
 const engine = core.createPreviewEngine({ widgets });
 assert.deepEqual(engine.getState(), {
