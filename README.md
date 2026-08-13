@@ -8,13 +8,19 @@
 
 | 组件 | 适用场景 | 支持尺寸 |
 | --- | --- | --- |
-| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；首次运行需配置 Admin Token | 小 / 中 / 大 / 锁屏 |
+| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板（管理员）：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；首次运行需配置 Admin Token | 小 / 中 / 大 / 锁屏 |
+| [`xlyra-user.js`](./dist/xlyra-user.js) | xLyra 密钥门户看板（下游用户）：余额与用量；来自 anlostyle 二次开发；首次运行需配置 API Key | 小 / 中 / 大 / 锁屏 |
 | [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态：在线设备与实时流量 | 小 / 中 / 大 / 锁屏 |
 | [`work-helper.js`](./dist/work-helper.js) | 工作日历：上下班倒计时、工作进度与下一假期 | 小 / 中 / 大 / 锁屏 |
 | [`time-progress.js`](./dist/time-progress.js) | 时间进度：今日、本周、本月与今年的可视化进度 | 小 / 中 / 大 / 锁屏 |
+| [`cyber-clock.js`](./dist/cyber-clock.js) | 赛博时钟：CRT 荧光点阵风格的时间、日期与年内进度 | 小 / 中 / 大 / 锁屏 |
 | [`today-dashboard.js`](./dist/today-dashboard.js) | 今日面板：聚合今日日程、到期提醒与下一项安排；首次运行需授权日历和提醒事项 | 小 / 中 / 大 / 锁屏 |
 | [`hitokoto.js`](./dist/hitokoto.js) | 一言：每日一句，失败时仍有本地文案兜底 | 小 / 中 / 大 / 锁屏 |
+| [`pixel-pet.js`](./dist/pixel-pet.js) | 像素宠物：史莱姆、小猫、机器人、小鸟四种像素伙伴陪伴桌面 | 小 / 中 / 大 / 锁屏 |
 | [`milk-tea-reminder.js`](./dist/milk-tea-reminder.js) | 奶茶提醒：按时段变化的轻量提醒，可在 App 内发送通知 | 小 / 中 / 大 / 锁屏 |
+| [`render-api-lab.js`](./dist/render-api-lab.js) | 渲染 API 实验室：字体、颜色与 Stack 布局的演示组件 | 小 / 中 / 大 / 锁屏 |
+| [`draw-context-lab.js`](./dist/draw-context-lab.js) | DrawContext 实验室：Fill、Stroke、Path 等绘制原语的演示组件 | 小 / 中 / 大 / 锁屏 |
+| [`accessory-lab.js`](./dist/accessory-lab.js) | 锁屏组件实验室：Inline、Circular、Rectangular 三种样式的演示组件 | 小 / 中 / 大 / 锁屏 |
 
 > 锁屏组件包含行内、圆形和矩形三种样式；具体展示内容会随尺寸自动调整。
 
@@ -31,7 +37,7 @@
 
 - 所有发布脚本均为单文件，不依赖运行时 `import`，可直接在 Scriptable 使用。
 - 组件提供深浅色适配，并支持主屏幕和锁屏组件尺寸。
-- iKuai 与 xLyra 等敏感配置保存于 iOS Keychain，不会写入仓库或随脚本源码公开；xLyra 仅在凭证验证成功后保存配置。
+- iKuai、xLyra 与 xlyra-user 等敏感配置保存于 iOS Keychain，不会写入仓库或随脚本源码公开；xLyra 组件仅在凭证验证成功后保存配置。
 - 更新前会将当前脚本备份到 Scriptable 本地 Library；网络或更新异常不会影响已有组件运行。
 
 ## 开发
