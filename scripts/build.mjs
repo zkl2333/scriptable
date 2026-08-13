@@ -31,6 +31,7 @@ const widgets = [
   { name: 'xlyra', version: '1.8.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
   { name: 'cyber-clock', version: '1.0.0', iconColor: 'green', iconGlyph: 'terminal' },
   { name: 'pixel-pet', version: '1.0.1', iconColor: 'pink', iconGlyph: 'paw-print' },
+  { name: 'xlyra-user', version: '1.1.1', iconColor: 'purple', iconGlyph: 'user' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>
@@ -40,6 +41,9 @@ const createBanner = ({ name, version, iconColor, iconGlyph }) =>
     `// icon-color: ${iconColor}; icon-glyph: ${iconGlyph};`,
     `// @script-id ${name}`,
     `// @version ${version}`,
+    ...(name === 'xlyra-user'
+      ? ['// 原始管理员版本：zkl2333', '// 用户版二次开发：anlostyle（经授权合入本仓库）']
+      : []),
   ].join('\n');
 
 await rm(outputDir, { recursive: true, force: true });
