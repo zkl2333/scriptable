@@ -34,6 +34,8 @@ jobs:
         run: |
           mkdir -p .pages
           cp -R preview dist image .pages/
+          mkdir -p .pages/src/widgets
+          cp src/widgets/*.mock.js .pages/src/widgets/
           cp .github/pages/index.html .pages/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
