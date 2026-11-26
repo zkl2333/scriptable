@@ -90,14 +90,33 @@ const writeKeychain = (key, value) => {
   else if (Keychain.contains(key)) Keychain.remove(key);
 };
 
-const getConfig = () => ({
-  token: readKeychain(KC_TOKEN).trim(),
-  shard: readKeychain(KC_SHARD).trim(),
-  rooms: readKeychain(KC_ROOMS)
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean),
-});
+const parseWidgetParam = () => {
+  const raw = typeof args !== 'undefined' ? String(args?.widgetParameter ?? '').trim() : '';
+  if (!raw) return null;
+  const [tokenPart, shardPart = '', roomsPart = ''] = raw.split('|').map((s) => s.trim());
+  if (!tokenPart) return null;
+  return {
+    token: tokenPart,
+    shard: shardPart,
+    rooms: roomsPart
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean),
+  };
+};
+
+const getConfig = () => {
+  const fromParam = parseWidgetParam();
+  if (fromParam) return fromParam;
+  return {
+    token: readKeychain(KC_TOKEN).trim(),
+    shard: readKeychain(KC_SHARD).trim(),
+    rooms: readKeychain(KC_ROOMS)
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean),
+  };
+};
 
 const cacheSignature = (cfg) =>
   `${String(cfg.token || '').slice(-8)}|${cfg.shard}|${cfg.rooms.join(',')}`;
@@ -572,6 +591,17 @@ const drawBar = (value, colorHex, width, height = 4) => {
   return ctx.getImage();
 };
 
+const readClipboardToken = () => {
+  try {
+    if (typeof Pasteboard === 'undefined' || typeof Pasteboard.pasteString !== 'function') return '';
+    const clip = String(Pasteboard.pasteString() ?? '').trim();
+    if (!clip || /\s/.test(clip) || clip.length < 16 || clip.length > 128) return '';
+    return clip;
+  } catch {
+    return '';
+  }
+};
+
 const readAlertField = (alert, index) => {
   try {
     return String(alert.textFieldValue(index) ?? '').trim();
@@ -580,38 +610,71 @@ const readAlertField = (alert, index) => {
   }
 };
 
-const configure = async () => {
-  const alert = new Alert();
-  alert.title = '配置 Screeps 帝国面板';
-  alert.message = '填入 Auth Token 即自动识别全部分片、核弹、安全模式、能量与余额。';
-  alert.addTextField('Auth Token', readKeychain(KC_TOKEN));
-  alert.addTextField('Shards（留空自动发现，如 shard2,shard3,shardX）', readKeychain(KC_SHARD));
-  alert.addTextField('房间（留空自动获取，可用 shard2:E43N29 格式）', readKeychain(KC_ROOMS));
-  alert.addAction('保存');
-  alert.addCancelAction('取消');
-  if ((await alert.presentAlert()) !== 0) return false;
-  const token = readAlertField(alert, 0);
-  if (!token) {
-    const tip = new Alert();
-    tip.title = '未保存配置';
-    tip.message = 'Auth Token 不能为空，请重新输入。';
-    tip.addAction('好');
-    await tip.presentAlert();
-    return false;
-  }
+const saveConfigValues = async (token, shard = '', rooms = '') => {
   writeKeychain(KC_TOKEN, token);
-  writeKeychain(KC_SHARD, readAlertField(alert, 1));
-  writeKeychain(KC_ROOMS, readAlertField(alert, 2));
+  writeKeychain(KC_SHARD, shard);
+  writeKeychain(KC_ROOMS, rooms);
   writeCache(cacheSignature(getConfig()), { snapshot: null, directory: null, rooms: null, cooldownUntil: 0 });
+  await sleep(320);
   const done = new Alert();
   done.title = '配置已保存';
   done.message = '返回主屏幕刷新组件，或点击下方立即预览。';
   done.addAction('立即预览');
   done.addCancelAction('完成');
   if ((await done.presentAlert()) === 0) {
+    await sleep(260);
     await presentWidgetPreviews(createWidget, ['medium']);
   }
   return true;
+};
+
+const configureFromClipboard = async () => {
+  const clip = readClipboardToken();
+  await sleep(320);
+  if (!clip) {
+    const tip = new Alert();
+    tip.title = '剪贴板未检测到 Token';
+    tip.message = '请先在 Screeps 网页复制 Auth Token，再点击此项导入；或选择手动输入。';
+    tip.addAction('好');
+    await tip.presentAlert();
+    return false;
+  }
+  return saveConfigValues(clip, readKeychain(KC_SHARD), readKeychain(KC_ROOMS));
+};
+
+const configure = async () => {
+  await sleep(350); // 等待前序 ActionSheet 完全收起，避免 iOS 26/27 UIAlertController 焦点竞态
+  const existingToken = readKeychain(KC_TOKEN);
+  const clipToken = existingToken ? '' : readClipboardToken();
+  const initialToken = existingToken || clipToken;
+
+  const alert = new Alert();
+  alert.title = '配置 Screeps 帝国面板';
+  alert.message = clipToken
+    ? '已自动预填剪贴板中的 Token，直接点「保存」即可自动发现全部分片。'
+    : '填入 Auth Token 即自动识别全部分片、核弹、安全模式、能量与余额。';
+  alert.addTextField('Auth Token', initialToken);
+  alert.addTextField('Shards（留空自动发现）', readKeychain(KC_SHARD));
+  alert.addTextField('房间（留空自动获取）', readKeychain(KC_ROOMS));
+  alert.addAction('保存');
+  alert.addAction('直接从剪贴板导入 Token');
+  alert.addCancelAction('取消');
+
+  const choice = await alert.presentAlert();
+  if (choice === 1) return configureFromClipboard();
+  if (choice !== 0) return false;
+
+  const token = readAlertField(alert, 0) || initialToken;
+  if (!token) {
+    await sleep(320);
+    const tip = new Alert();
+    tip.title = '未保存配置';
+    tip.message = 'Auth Token 不能为空。你可以先复制 Token，再点「直接从剪贴板导入 Token」。';
+    tip.addAction('好');
+    await tip.presentAlert();
+    return false;
+  }
+  return saveConfigValues(token, readAlertField(alert, 1), readAlertField(alert, 2));
 };
 
 const parseManualRooms = (entries, fallbackShard) => {
@@ -1654,19 +1717,29 @@ const createWidget = async (family = config.widgetFamily || 'medium') => {
 };
 
 if (shouldShowWidgetMenu()) {
-  const menu = await runWidgetMenu({
-    title: 'Screeps 运营面板',
-    message: '跨 Shard 核弹、安全模式、账户余额、能量与 CPU 监控。',
-    version: __SCRIPT_VERSION__,
-    updater,
-    scriptId: __SCRIPT_ID__,
-    previewFamilies: ALL_PREVIEW_FAMILIES,
-    actions: [{ id: 'configure', title: '配置 Token 与分片' }],
-  });
-  if (menu?.action === 'preview') {
-    await presentWidgetPreviews(createWidget, menu.families);
-  } else if (menu?.action === 'configure') {
+  if (!getConfig().token) {
     await configure();
+  } else {
+    const menu = await runWidgetMenu({
+      title: 'Screeps 运营面板',
+      message: '跨 Shard 核弹、安全模式、账户余额、能量与 CPU 监控。',
+      version: __SCRIPT_VERSION__,
+      updater,
+      scriptId: __SCRIPT_ID__,
+      previewFamilies: ALL_PREVIEW_FAMILIES,
+      actions: [
+        { id: 'configure', title: '配置 Token 与分片' },
+        { id: 'clipboard', title: '从剪贴板导入 Token' },
+      ],
+    });
+    if (menu?.action === 'preview') {
+      await sleep(260);
+      await presentWidgetPreviews(createWidget, menu.families);
+    } else if (menu?.action === 'configure') {
+      await configure();
+    } else if (menu?.action === 'clipboard') {
+      await configureFromClipboard();
+    }
   }
 } else {
   Script.setWidget(await createWidget());
