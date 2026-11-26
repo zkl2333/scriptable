@@ -119,4 +119,56 @@ try {
   globalThis.ScriptablePreviewMocks.screeps = baseMock;
 }
 
-console.log('screeps source, distribution, and 5-metric runtime tests passed');
+// Rate-limit & cache behavior checks
+const sharedStorage = { files: new Map(), keychain: new Map() };
+let requestCount = 0;
+let simulateRateLimit = false;
+globalThis.ScriptablePreviewMocks.screeps = {
+  ...baseMock,
+  respond(url) {
+    requestCount += 1;
+    assert.doesNotMatch(url, /cpu_total|cpu_limit/, '应合并为单个 history 请求，不应拆分单独拉取');
+    if (simulateRateLimit) return { ok: 0, error: 'rate limit exceeded', statusCode: 429, retryAfter: 120000 };
+    return baseMock.respond(url);
+  },
+};
+try {
+  // 1st render populates shared cache
+  await runtime.executeSource({ source: dist, scriptId: 'screeps', family: 'medium', appearance: 'dark', storage: sharedStorage });
+  const firstBatchCalls = requestCount;
+  assert.ok(firstBatchCalls > 0 && firstBatchCalls <= 22, `单次请求数应显著收敛，实际 ${firstBatchCalls}`);
+
+  // 2nd render (e.g. another widget family) reuses shared snapshot with 0 requests
+  await runtime.executeSource({ source: dist, scriptId: 'screeps', family: 'small', appearance: 'dark', storage: sharedStorage });
+  assert.equal(requestCount, firstBatchCalls, '有效期内同配置多组件刷新不应重复发起 API 请求');
+
+  // 3rd render forces refresh -> hits 429 -> falls back smoothly to cached snapshot + sets cooldown
+  simulateRateLimit = true;
+  const rlTree = await runtime.executeSource({
+    source: dist,
+    scriptId: 'screeps',
+    family: 'medium',
+    appearance: 'dark',
+    widgetAction: { id: 'refresh' },
+    storage: sharedStorage,
+  });
+  const rlHtml = runtime.renderWidgetTree(rlTree);
+  assert.match(rlHtml, /限流退避/);
+  assert.match(rlHtml, /4\.90B/);
+  const callsAfterRateLimit = requestCount;
+
+  // 4th render while in cooldown makes 0 network calls
+  await runtime.executeSource({
+    source: dist,
+    scriptId: 'screeps',
+    family: 'medium',
+    appearance: 'dark',
+    widgetAction: { id: 'refresh' },
+    storage: sharedStorage,
+  });
+  assert.equal(requestCount, callsAfterRateLimit, '限流冷却期内禁止继续调用 API');
+} finally {
+  globalThis.ScriptablePreviewMocks.screeps = baseMock;
+}
+
+console.log('screeps source, distribution, rate-limit protection, and 5-metric runtime tests passed');

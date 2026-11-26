@@ -429,6 +429,14 @@ var KC_TOKEN = `${ID}.token`;
 var KC_SHARD = `${ID}.shard`;
 var KC_ROOMS = `${ID}.rooms`;
 var BASE_URL = "https://screeps.com/api";
+var SNAPSHOT_TTL_MS = 3 * 60 * 1e3;
+var ALERT_TTL_MS = 60 * 1e3;
+var DIRECTORY_TTL_MS = 30 * 60 * 1e3;
+var ROOM_TTL_MS = 4 * 60 * 1e3;
+var ROOM_BATCH_SIZE = 3;
+var ROOM_BATCH_DELAY_MS = 80;
+var REFRESH_INTERVAL_MS = 15 * 60 * 1e3;
+var DEFAULT_COOLDOWN_MS = 3 * 60 * 1e3;
 var dyn = (light, dark) => Color.dynamic(new Color(light), new Color(dark));
 var C = {
   bgTop: dyn("#F7F8FC", "#101020"),
@@ -454,12 +462,110 @@ var getConfig = () => ({
   shard: (Keychain.get(KC_SHARD) || "").trim(),
   rooms: (Keychain.get(KC_ROOMS) || "").split(",").map((x) => x.trim()).filter(Boolean)
 });
+var cacheSignature = (cfg) => `${String(cfg.token || "").slice(-8)}|${cfg.shard}|${cfg.rooms.join(",")}`;
+var getCacheFile = () => {
+  if (typeof FileManager === "undefined") return null;
+  try {
+    const fm = FileManager.local();
+    const dir = fm.joinPath(fm.libraryDirectory(), "screeps-cache");
+    if (!fm.fileExists(dir)) fm.createDirectory(dir, true);
+    return { fm, path: fm.joinPath(dir, "state-v2.json") };
+  } catch {
+    return null;
+  }
+};
+var readCache = (sig) => {
+  const handle = getCacheFile();
+  if (!handle) return {};
+  try {
+    if (!handle.fm.fileExists(handle.path)) return {};
+    const parsed = JSON.parse(handle.fm.readString(handle.path));
+    if (!parsed || parsed.sig !== sig) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+var writeCache = (sig, patch) => {
+  const handle = getCacheFile();
+  if (!handle) return;
+  try {
+    const prev = readCache(sig);
+    const next = { ...prev, ...patch, sig };
+    handle.fm.writeString(handle.path, JSON.stringify(next));
+  } catch {
+  }
+};
+var sleep = (ms) => new Promise((resolve) => {
+  if (typeof Timer !== "undefined" && typeof Timer.schedule === "function") {
+    Timer.schedule(ms, false, resolve);
+  } else {
+    setTimeout(resolve, ms);
+  }
+});
+var mapInBatches = async (items, size, delayMs, worker) => {
+  const results = [];
+  for (let i = 0; i < items.length; i += size) {
+    if (i > 0 && delayMs > 0) await sleep(delayMs);
+    const chunk = items.slice(i, i + size);
+    const part = await Promise.all(chunk.map(worker));
+    results.push(...part);
+  }
+  return results;
+};
+var headerValue = (headers, name) => {
+  if (!headers || typeof headers !== "object") return void 0;
+  const target = name.toLowerCase();
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === target) return v;
+  }
+  return void 0;
+};
+var computeRetryAfterMs = (response, body) => {
+  const headers = response?.headers;
+  const retryAfter = Number(headerValue(headers, "retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.min(15 * 60 * 1e3, Math.max(60 * 1e3, retryAfter * 1e3));
+  }
+  const resetSec = Number(headerValue(headers, "x-ratelimit-reset"));
+  if (Number.isFinite(resetSec) && resetSec > 0) {
+    const diff = resetSec * 1e3 - Date.now();
+    if (diff > 5e3) return Math.min(15 * 60 * 1e3, Math.max(60 * 1e3, diff + 3e3));
+  }
+  const bodyWait = Number(body?.retryAfter);
+  if (Number.isFinite(bodyWait) && bodyWait > 0) {
+    return Math.min(15 * 60 * 1e3, Math.max(60 * 1e3, bodyWait));
+  }
+  return DEFAULT_COOLDOWN_MS;
+};
+var rateState = { remaining: null, resetAt: 0 };
 var api = async (path, params = {}) => {
   const url = `${BASE_URL}/${path}`;
   const request = new Request(url);
   request.headers = { "X-Token": params.token, "X-Username": params.token };
   request.timeoutInterval = 8;
-  return await request.loadJSON();
+  const body = await request.loadJSON();
+  const status = Number(request.response?.statusCode || body?.statusCode || 200);
+  const headers = request.response?.headers;
+  const remRaw = headerValue(headers, "x-ratelimit-remaining");
+  if (remRaw !== void 0 && Number.isFinite(Number(remRaw))) {
+    rateState.remaining = Number(remRaw);
+  }
+  const resetRaw = headerValue(headers, "x-ratelimit-reset");
+  if (resetRaw !== void 0 && Number.isFinite(Number(resetRaw))) {
+    rateState.resetAt = Number(resetRaw) * 1e3;
+  }
+  const errMsg = String(body?.error || "").toLowerCase();
+  if (status === 429 || errMsg.includes("rate")) {
+    const err = new Error("Screeps API 触发限流");
+    err.isRateLimit = true;
+    err.retryAfterMs = computeRetryAfterMs(request.response, body);
+    throw err;
+  }
+  if (status >= 500) {
+    throw new Error(`Screeps HTTP ${status}`);
+  }
+  return body;
 };
 var memory = async (key, shard, cfg) => api(`user/memory?path=${encodeURIComponent(key)}&shard=${encodeURIComponent(shard)}`, cfg);
 var formatMoney = (n) => {
@@ -691,14 +797,31 @@ var parseRoomObjects = (room, shard, objectsRes, gameTime, gStats, shardIncoming
     incomingNukes
   };
 };
-var loadData = async (cfg) => {
+var fetchShardHistory = async (shardName, cfg) => {
+  const full = await memory("history", shardName, cfg).catch(() => null);
+  const root = full?.data && typeof full.data === "object" ? full.data : full;
+  if (root && typeof root === "object" && ("cpu_total" in root || "bucket" in root || "creeps" in root)) {
+    return root;
+  }
+  return null;
+};
+var fetchLiveData = async (cfg, cache, sig) => {
+  const now = Date.now();
   const me = await api("auth/me", cfg);
+  const cachedDir = cache.directory;
+  const hasFreshDir = cachedDir && now - Number(cachedDir.at || 0) < DIRECTORY_TTL_MS;
   const [userRoomsRes, nukesRes] = await Promise.all([
-    me?._id ? api(`user/rooms?id=${encodeURIComponent(me._id)}`, cfg).catch(() => null) : Promise.resolve(null),
-    api("experimental/nukes", cfg).catch(() => null)
+    hasFreshDir ? Promise.resolve({ ok: 1, shards: cachedDir.shards }) : me?._id ? api(`user/rooms?id=${encodeURIComponent(me._id)}`, cfg).catch(() => null) : Promise.resolve(null),
+    api("experimental/nukes", cfg).catch((err) => {
+      if (err?.isRateLimit) throw err;
+      return null;
+    })
   ]);
   const cpuMap = me?.cpuShard || {};
-  const apiRoomsByShard = userRoomsRes?.shards || {};
+  const apiRoomsByShard = userRoomsRes?.shards || cachedDir?.shards || {};
+  if (!hasFreshDir && userRoomsRes?.shards) {
+    writeCache(sig, { directory: { at: now, shards: userRoomsRes.shards } });
+  }
   const manualShards = cfg.shard && cfg.shard.toLowerCase() !== "auto" ? cfg.shard.split(",").map((s) => s.trim()).filter(Boolean) : [];
   const discovered = new Set(manualShards);
   if (!discovered.size) {
@@ -712,38 +835,40 @@ var loadData = async (cfg) => {
   if (!discovered.size) discovered.add("shard2");
   const activeShards = [...discovered].sort((a, b) => (Number(cpuMap[b]) || 0) - (Number(cpuMap[a]) || 0));
   const manualRoomsMap = parseManualRooms(cfg.rooms, activeShards[0]);
-  const shardDetails = await Promise.all(
-    activeShards.map(async (shardName) => {
-      const [timeRes, cpuRes, limitRes, bucketRes, creepsRes, statsRes] = await Promise.all([
-        api(`game/time?shard=${encodeURIComponent(shardName)}`, cfg).catch(() => null),
-        memory("history.cpu_total", shardName, cfg).catch(() => null),
-        memory("history.cpu_limit", shardName, cfg).catch(() => null),
-        memory("history.bucket", shardName, cfg).catch(() => null),
-        memory("history.creeps", shardName, cfg).catch(() => null),
-        memory("stats", shardName, cfg).catch(() => null)
-      ]);
-      const rawStats = statsRes?.data && typeof statsRes.data === "object" ? statsRes.data : statsRes;
-      const gStats = rawStats && typeof rawStats === "object" && ("cpu.used" in rawStats || "gcl.level" in rawStats) ? rawStats : null;
-      const cpuVal = gStats?.["cpu.used"] ?? latestAverage(cpuRes, 0);
-      const limitVal = gStats?.["cpu.limit"] ?? latestAverage(limitRes, null) ?? cpuMap[shardName] ?? me?.cpu ?? 20;
-      const bucketVal = gStats?.["cpu.bucket"] ?? latestAverage(bucketRes, 0);
-      const creepsVal = gStats?.creeps ?? latestAverage(creepsRes, 0);
-      const roomNames = manualRoomsMap[shardName] || apiRoomsByShard[shardName] || [];
-      return {
-        shard: shardName,
-        gameTime: Number(timeRes?.time) || 0,
-        cpu: Number(cpuVal) || 0,
-        cpuLimit: Number(limitVal) || 0,
-        ratio: limitVal > 0 ? (Number(cpuVal) || 0) / limitVal : 0,
-        bucket: Number(bucketVal) || 0,
-        creeps: Number(creepsVal) || 0,
-        cpuSeries: extractSeries(cpuRes),
-        roomNames,
-        gStats,
-        hasGrafanaStats: Boolean(gStats)
-      };
-    })
-  );
+  const shardDetails = await mapInBatches(activeShards, ROOM_BATCH_SIZE, ROOM_BATCH_DELAY_MS, async (shardName) => {
+    const [hist, statsRes] = await Promise.all([
+      fetchShardHistory(shardName, cfg),
+      memory("stats", shardName, cfg).catch((err) => {
+        if (err?.isRateLimit) throw err;
+        return null;
+      })
+    ]);
+    const rawStats = statsRes?.data && typeof statsRes.data === "object" ? statsRes.data : statsRes;
+    const gStats = rawStats && typeof rawStats === "object" && ("cpu.used" in rawStats || "gcl.level" in rawStats) ? rawStats : null;
+    let gameTime = Number(gStats?.time) || 0;
+    if (!gameTime && (rateState.remaining === null || rateState.remaining > 6)) {
+      const timeRes = await api(`game/time?shard=${encodeURIComponent(shardName)}`, cfg).catch(() => null);
+      gameTime = Number(timeRes?.time) || 0;
+    }
+    const cpuVal = gStats?.["cpu.used"] ?? latestAverage(hist?.cpu_total, 0);
+    const limitVal = gStats?.["cpu.limit"] ?? latestAverage(hist?.cpu_limit, null) ?? cpuMap[shardName] ?? me?.cpu ?? 20;
+    const bucketVal = gStats?.["cpu.bucket"] ?? latestAverage(hist?.bucket, 0);
+    const creepsVal = gStats?.creeps ?? latestAverage(hist?.creeps, 0);
+    const roomNames = manualRoomsMap[shardName] || apiRoomsByShard[shardName] || [];
+    return {
+      shard: shardName,
+      gameTime,
+      cpu: Number(cpuVal) || 0,
+      cpuLimit: Number(limitVal) || 0,
+      ratio: limitVal > 0 ? (Number(cpuVal) || 0) / limitVal : 0,
+      bucket: Number(bucketVal) || 0,
+      creeps: Number(creepsVal) || 0,
+      cpuSeries: extractSeries(hist?.cpu_total),
+      roomNames,
+      gStats,
+      hasGrafanaStats: Boolean(gStats)
+    };
+  });
   const rawNukesByShard = nukesRes?.nukes && !Array.isArray(nukesRes.nukes) ? nukesRes.nukes : {};
   const roomTargets = [];
   const maxShardRooms = Math.max(0, ...shardDetails.map((s) => s.roomNames.length));
@@ -752,16 +877,31 @@ var loadData = async (cfg) => {
       if (sd.roomNames[idx]) roomTargets.push({ sd, room: sd.roomNames[idx] });
     }
   }
-  const rooms = await Promise.all(
-    roomTargets.slice(0, 12).map(async ({ sd, room }) => {
-      const objectsRes = await api(
+  const cachedRoomsMap = cache.rooms?.items || {};
+  const roomsFresh = cache.rooms && now - Number(cache.rooms.at || 0) < ROOM_TTL_MS;
+  const quotaTight = rateState.remaining !== null && rateState.remaining <= 6;
+  const rooms = await mapInBatches(roomTargets.slice(0, 12), ROOM_BATCH_SIZE, ROOM_BATCH_DELAY_MS, async ({ sd, room }) => {
+    const key = `${sd.shard}:${room}`;
+    const cachedObj = cachedRoomsMap[key];
+    let objectsRes = null;
+    if (cachedObj && (roomsFresh || quotaTight)) {
+      objectsRes = cachedObj;
+    } else {
+      objectsRes = await api(
         `game/room-objects?room=${encodeURIComponent(room)}&shard=${encodeURIComponent(sd.shard)}`,
         cfg
-      ).catch(() => null);
-      const shardNukes = Array.isArray(rawNukesByShard[sd.shard]) ? rawNukesByShard[sd.shard] : [];
-      return parseRoomObjects(room, sd.shard, objectsRes, sd.gameTime, sd.gStats, shardNukes);
-    })
-  );
+      ).catch((err) => {
+        if (err?.isRateLimit) throw err;
+        return cachedObj || null;
+      });
+      if (objectsRes?.objects) cachedRoomsMap[key] = objectsRes;
+    }
+    const shardNukes = Array.isArray(rawNukesByShard[sd.shard]) ? rawNukesByShard[sd.shard] : [];
+    return parseRoomObjects(room, sd.shard, objectsRes, sd.gameTime, sd.gStats, shardNukes);
+  });
+  if (!roomsFresh && Object.keys(cachedRoomsMap).length) {
+    writeCache(sig, { rooms: { at: now, items: cachedRoomsMap } });
+  }
   rooms.sort((a, b) => {
     const urgA = (a.incomingNukes.length ? 1e3 : 0) + (a.safeModeRemaining ? 500 : 0) + (a.nuker?.ready ? 100 : 0);
     const urgB = (b.incomingNukes.length ? 1e3 : 0) + (b.safeModeRemaining ? 500 : 0) + (b.nuker?.ready ? 100 : 0);
@@ -784,8 +924,8 @@ var loadData = async (cfg) => {
   const minBucket = shardDetails.length ? Math.min(...shardDetails.map((s) => s.bucket)) : 0;
   const gclLevel = primaryStats?.["gcl.level"] ?? me?.gcl?.level ?? 0;
   const gclRatio = primaryStats && Number.isFinite(primaryStats["gcl.progressPercent"]) ? Math.max(0, Math.min(1, primaryStats["gcl.progressPercent"] / 100)) : progress(me?.gcl?.progress, me?.gcl?.progressTotal);
-  return {
-    me,
+  const data = {
+    fetchedAt: now,
     shards: shardDetails,
     rooms,
     totalRooms: roomTargets.length || rooms.length,
@@ -805,8 +945,46 @@ var loadData = async (cfg) => {
     totalSafeModeCharges,
     totalEnergy,
     totalStorageEnergy,
-    totalTerminalEnergy
+    totalTerminalEnergy,
+    cacheNote: quotaTight ? "节流缓存" : "",
+    cooldownUntil: 0
   };
+  writeCache(sig, { snapshot: data, cooldownUntil: 0 });
+  return data;
+};
+var loadData = async (cfg) => {
+  const now = Date.now();
+  const sig = cacheSignature(cfg);
+  const cache = readCache(sig);
+  const snap = cache.snapshot || null;
+  const forceRefresh = typeof args !== "undefined" && args?.widgetAction?.id === "refresh";
+  const cooldownUntil = Number(cache.cooldownUntil || 0);
+  if (cooldownUntil > now) {
+    if (snap) {
+      return { ...snap, cooldownUntil, cacheNote: "限流退避" };
+    }
+    throw new Error("API 限流退避中，请稍后刷新");
+  }
+  if (!forceRefresh && snap) {
+    const ttl = snap.incomingNukeCount > 0 || snap.activeSafeModes?.length > 0 ? ALERT_TTL_MS : SNAPSHOT_TTL_MS;
+    if (now - Number(snap.fetchedAt || 0) < ttl) {
+      return snap;
+    }
+  }
+  try {
+    return await fetchLiveData(cfg, cache, sig);
+  } catch (error) {
+    if (error?.isRateLimit) {
+      const nextCooldown = now + (error.retryAfterMs || DEFAULT_COOLDOWN_MS);
+      writeCache(sig, { cooldownUntil: nextCooldown });
+      if (snap) {
+        return { ...snap, cooldownUntil: nextCooldown, cacheNote: "限流退避" };
+      }
+    } else if (snap) {
+      return { ...snap, cacheNote: "离线缓存" };
+    }
+    throw error;
+  }
 };
 var statusColor = (ratio, bucket = 1e4) => ratio > 0.9 || bucket < 1e3 ? C.red : ratio > 0.75 || bucket < 5e3 ? C.yellow : C.cyan;
 var safeModeText = (room) => {
@@ -830,11 +1008,12 @@ var addHeader = (widget, data, compact = false) => {
   addText(header, "Screeps", Font.semiboldSystemFont(compact ? 12 : 13), C.text, { lineLimit: 1 });
   if (!compact) {
     header.addSpacer(6);
+    const subtitle = data.cacheNote ? `${data.shards.length} Shards · ${data.cacheNote}` : `${data.shards.length} Shards · ${data.totalRooms} 房`;
     addText(
       header,
-      `${data.shards.length} Shards · ${data.totalRooms} 房`,
+      subtitle,
       Font.systemFont(10),
-      C.muted,
+      data.cacheNote === "限流退避" ? C.yellow : C.muted,
       { lineLimit: 1 }
     );
   }
@@ -928,7 +1107,13 @@ var renderSmall = (widget, data) => {
   cpuRow.addSpacer(3);
   addText(cpuRow, `/${data.cpuLimit}`, Font.mediumRoundedSystemFont(11), C.muted, { lineLimit: 1 });
   cpuRow.addSpacer();
-  addText(cpuRow, `B ${formatCompact(data.bucket)}`, Font.regularMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
+  addText(
+    cpuRow,
+    data.cacheNote === "限流退避" ? "限流保护" : `B ${formatCompact(data.bucket)}`,
+    Font.regularMonospacedSystemFont(9),
+    data.cacheNote === "限流退避" ? C.yellow : C.muted,
+    { lineLimit: 1 }
+  );
   widget.addSpacer(3);
   bar(widget, data.ratio, statusColor(data.ratio, data.bucket), 130, 4);
   widget.addSpacer(7);
@@ -1202,6 +1387,9 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
     try {
       const data2 = await loadData(cfg);
       renderAccessory(widget, family, data2);
+      widget.refreshAfterDate = new Date(
+        Math.max(Date.now() + REFRESH_INTERVAL_MS, (data2.cooldownUntil || 0) + 5e3)
+      );
     } catch {
       widget.setPadding(4, 6, 4, 6);
       addText(widget, "SCREEPS · 离线", Font.semiboldMonospacedSystemFont(10), C.accessory, { lineLimit: 1 });
@@ -1230,12 +1418,14 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
     widget.addSpacer(8);
     addText(widget, "数据暂时不可用", Font.mediumSystemFont(14), C.red);
     addText(widget, error.message?.slice(0, 40) || "请检查配置", Font.systemFont(10), C.muted);
+    widget.refreshAfterDate = new Date(Date.now() + DEFAULT_COOLDOWN_MS);
     return attachMenuURL(widget);
   }
   if (family === "small") renderSmall(widget, data);
   else if (isLargeFamily(family)) renderLarge(widget, data, family);
   else renderMedium(widget, data);
-  widget.refreshAfterDate = new Date(Date.now() + 10 * 60 * 1e3);
+  const nextMs = Math.max(Date.now() + REFRESH_INTERVAL_MS, (data.cooldownUntil || 0) + 5e3);
+  widget.refreshAfterDate = new Date(nextMs);
   return attachMenuURL(widget);
 };
 if (shouldShowWidgetMenu()) {

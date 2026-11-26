@@ -139,6 +139,17 @@
         const s = paramFromUrl(url, 'shard') || 'shard2';
         const info = shardTelemetry[s] || shardTelemetry.shard2;
         if (url.includes('path=stats')) return { ok: 1, data: info.stats };
+        if (url.includes('path=history')) {
+          return {
+            ok: 1,
+            data: {
+              cpu_total: history(info.cpu),
+              cpu_limit: history(info.limit),
+              bucket: history(info.bucket),
+              creeps: history(info.creeps),
+            },
+          };
+        }
         if (url.includes('cpu_total')) return history(info.cpu);
         if (url.includes('cpu_limit')) return history(info.limit);
         if (url.includes('bucket')) return history(info.bucket);
