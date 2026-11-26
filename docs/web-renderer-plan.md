@@ -47,9 +47,12 @@ DOM 渲染器（preview/runtime.js，只消费 IR）
 
 ## 3. 路线图
 
-> **进度（2026-07-27）**：M1–M5 已全部落地（`preview/measure.js`、`preview/layout.js`、
-> Color.dynamic 渲染期解析、WidgetDate tick 自动刷新、minimumScaleFactor 二分缩放、
-> 图片纵横比推导）。M4 的 remote 图片加载后布局修正未实现；M6 待真机。
+> **进度（2026-11-26）**：M1–M5 及内核 v2 进阶攻坚已全部落地：
+> - 二维 `sizeThatFits(proposal)` 布局求解器（[preview/layout.js](../preview/layout.js)）+ 绝对坐标 `_frame` 输出 + 横向嵌套纵向折行回流
+> - 真实多行断行（显式 `\n` + CJK/拉丁断词）与单行/多行联合 `minimumScaleFactor` 二分缩放（[preview/measure.js](../preview/measure.js)）
+> - v1.8 ZStack `addProgress`、交互控件（`addButton`/`addToggle`/`addRefreshButton`/`setAction`）、`backgroundStyle = "transparent"`、`extraLargePortrait` 与 `accessoryInline` 单图单文过滤
+> - CoreGraphics 语义增强：`Path` 有序混合命令队列、`DrawContext` 多行 `drawTextInRect` 与 `drawImageInRect` 旋转、全量 `Font` Dynamic Type 与 `SFSymbol` 权重、`WidgetImage` 同心 `containerRelativeShape`、`resizable = false` 与位图 Alpha 模板 `tintColor` 着色
+> - 离线渲染后端（[scripts/snapshot-widgets.mjs](../scripts/snapshot-widgets.mjs) + [scripts/render-widget.py](../scripts/render-widget.py)）已统一消费同一份布局几何树；M6 真机黄金截屏定标待接入真机样本。
 
 ### M1 — 文本测量基础设施（R9 的地基）✅ 已完成
 

@@ -2,7 +2,49 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: orange; icon-glyph: lock;
 // @script-id accessory-lab
-// @version 1.0.0
+// @version 1.1.0
+
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var applyTransparentBackground = (widget2, scriptId, { isAccessory: isAccessory2 = false, force = null } = {}) => {
+  if (!widget2 || isAccessory2) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget2.backgroundStyle = "transparent";
+  widget2.backgroundColor = null;
+  widget2.backgroundGradient = null;
+  widget2.backgroundImage = null;
+  return true;
+};
 
 // src/widgets/accessory-lab.js
 var family = config.widgetFamily || "medium";
@@ -53,6 +95,7 @@ if (!isAccessory) {
   detail.font = Font.mediumMonospacedSystemFont(10);
   detail.textColor = secondary;
   detail.centerAlignText();
+  applyTransparentBackground(widget, "accessory-lab");
 } else if (family === "accessoryInline") {
   widget.addAccessoryWidgetBackground = true;
   widget.setPadding(0, 0, 0, 0);

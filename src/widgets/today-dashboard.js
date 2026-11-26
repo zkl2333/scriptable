@@ -5,6 +5,12 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addRefreshAction,
+  applyTransparentBackground,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -13,12 +19,7 @@ const updater = createUpdater({
 });
 await updater.autoUpdate();
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = ['small', 'medium', 'large', 'extraLarge', ...ACCESSORY_FAMILIES];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 const COLORS = {
   text: Color.dynamic(new Color('#1D252C'), new Color('#F3F5F7')),
   muted: Color.dynamic(new Color('#6E7882'), new Color('#98A2AD')),
@@ -157,6 +158,7 @@ const setBackground = (widget) => {
   gradient.startPoint = new Point(0, 0);
   gradient.endPoint = new Point(1, 1);
   widget.backgroundGradient = gradient;
+  applyTransparentBackground(widget, __SCRIPT_ID__);
 };
 
 const addHeader = (widget, now, large = false) => {
@@ -167,9 +169,11 @@ const addHeader = (widget, now, large = false) => {
   row.addSpacer(7);
   addText(row, `周${formatWeekday(now)}`, Font.mediumSystemFont(11), COLORS.muted);
   row.addSpacer();
-  const icon = row.addImage(SFSymbol.named('sun.max.fill').image);
-  icon.tintColor = COLORS.reminder;
-  icon.imageSize = new Size(15, 15);
+  addRefreshAction(row, {
+    title: '刷新今日面板',
+    iconColor: COLORS.reminder,
+    iconSize: 13,
+  });
 };
 
 const addNextEventCard = (widget, dashboard, compact = false) => {
@@ -203,7 +207,7 @@ const addSmall = (widget, dashboard) => {
   else addEmpty(widget, dashboard.reminders.available ? '今天没有截止待办' : '未获提醒事项权限', true);
 };
 
-const addColumn = (parent, dashboard, type) => {
+const addColumn = (parent, dashboard, type, maxItems = 3) => {
   const isEvents = type === 'events';
   const items = isEvents ? dashboard.events.items : dashboard.reminders.items;
   const available = isEvents ? dashboard.events.available : dashboard.reminders.available;
@@ -215,10 +219,11 @@ const addColumn = (parent, dashboard, type) => {
     addEmpty(column, available ? (isEvents ? '今天没有安排' : '今天没有截止待办') : `未获${isEvents ? '日历' : '提醒事项'}权限`);
     return;
   }
-  for (const [index, item] of items.slice(0, 3).entries()) {
+  const visible = items.slice(0, maxItems);
+  for (const [index, item] of visible.entries()) {
     if (isEvents) addEventRow(column, item, dashboard.now);
     else addReminderRow(column, item, dashboard.now);
-    if (index < Math.min(items.length, 3) - 1) column.addSpacer(6);
+    if (index < visible.length - 1) column.addSpacer(6);
   }
 };
 
@@ -234,16 +239,24 @@ const addMedium = (widget, dashboard) => {
   addColumn(body, dashboard, 'reminders');
 };
 
-const addLarge = (widget, dashboard, extraLarge = false) => {
+const addLarge = (widget, dashboard, family = 'large') => {
+  const extraLarge = family === 'extraLarge';
+  const portrait = family === 'extraLargePortrait';
   widget.setPadding(18, 19, 16, 19);
   addHeader(widget, dashboard.now, true);
   widget.addSpacer(14);
   addNextEventCard(widget, dashboard);
   widget.addSpacer(15);
-  const body = widget.addStack();
-  addColumn(body, dashboard, 'events');
-  body.addSpacer(extraLarge ? 28 : 20);
-  addColumn(body, dashboard, 'reminders');
+  if (portrait) {
+    addColumn(widget, dashboard, 'events', 6);
+    widget.addSpacer(20);
+    addColumn(widget, dashboard, 'reminders', 6);
+  } else {
+    const body = widget.addStack();
+    addColumn(body, dashboard, 'events', 3);
+    body.addSpacer(extraLarge ? 28 : 20);
+    addColumn(body, dashboard, 'reminders', 3);
+  }
   widget.addSpacer();
   const footer = dashboard.reminders.undated > 0
     ? `另有 ${dashboard.reminders.undated} 项无截止日期待办`
@@ -285,7 +298,7 @@ const createWidget = async (family = config.widgetFamily || 'medium') => {
     setBackground(widget);
     if (family === 'small') addSmall(widget, dashboard);
     else if (family === 'medium') addMedium(widget, dashboard);
-    else addLarge(widget, dashboard, family === 'extraLarge');
+    else addLarge(widget, dashboard, family);
   }
   widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   return attachMenuURL(widget);
@@ -297,6 +310,7 @@ if (shouldShowWidgetMenu()) {
     message: '聚合今日日程与到期提醒。首次运行会请求系统权限。',
     version: __SCRIPT_VERSION__,
     updater,
+    scriptId: __SCRIPT_ID__,
     previewFamilies: PREVIEW_FAMILIES,
   });
   if (menu?.action === 'preview') await presentWidgetPreviews(createWidget, menu.families);

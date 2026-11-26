@@ -9,29 +9,30 @@ const outputDir = resolve(rootDir, 'dist');
 const rawBaseURL = 'https://raw.githubusercontent.com/zkl2333/scriptable/main/dist';
 
 const widgets = [
-  { name: 'hitokoto', version: '1.2.0', iconColor: 'green', iconGlyph: 'magic' },
-  { name: 'render-api-lab', version: '1.0.0', iconColor: 'blue', iconGlyph: 'paint-brush' },
-  { name: 'draw-context-lab', version: '1.0.0', iconColor: 'purple', iconGlyph: 'pencil-alt' },
-  { name: 'accessory-lab', version: '1.0.0', iconColor: 'orange', iconGlyph: 'lock' },
-  { name: 'ikuai', version: '1.4.2', iconColor: 'blue', iconGlyph: 'network-wired' },
+  { name: 'hitokoto', version: '1.3.0', iconColor: 'green', iconGlyph: 'magic' },
+  { name: 'render-api-lab', version: '1.1.0', iconColor: 'blue', iconGlyph: 'paint-brush' },
+  { name: 'draw-context-lab', version: '1.1.0', iconColor: 'purple', iconGlyph: 'pencil-alt' },
+  { name: 'accessory-lab', version: '1.1.0', iconColor: 'orange', iconGlyph: 'lock' },
+  { name: 'interactive-lab', version: '1.0.0', iconColor: 'blue', iconGlyph: 'tint' },
+  { name: 'ikuai', version: '1.5.0', iconColor: 'blue', iconGlyph: 'network-wired' },
   {
     name: 'milk-tea-reminder',
-    version: '1.2.0',
+    version: '1.3.0',
     iconColor: 'orange',
     iconGlyph: 'coffee',
   },
   {
     name: 'time-progress',
-    version: '1.2.0',
+    version: '1.3.0',
     iconColor: 'yellow',
     iconGlyph: 'hourglass-half',
   },
-  { name: 'today-dashboard', version: '1.0.0', iconColor: 'blue', iconGlyph: 'calendar-day' },
-  { name: 'work-helper', version: '2.2.0', iconColor: 'teal', iconGlyph: 'magic' },
-  { name: 'xlyra', version: '1.8.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
-  { name: 'cyber-clock', version: '1.0.0', iconColor: 'green', iconGlyph: 'terminal' },
-  { name: 'pixel-pet', version: '1.0.1', iconColor: 'pink', iconGlyph: 'paw-print' },
-  { name: 'xlyra-user', version: '1.1.1', iconColor: 'purple', iconGlyph: 'user' },
+  { name: 'today-dashboard', version: '1.1.0', iconColor: 'blue', iconGlyph: 'calendar-day' },
+  { name: 'work-helper', version: '2.3.0', iconColor: 'teal', iconGlyph: 'magic' },
+  { name: 'xlyra', version: '1.9.0', iconColor: 'purple', iconGlyph: 'tachometer-alt' },
+  { name: 'cyber-clock', version: '1.1.0', iconColor: 'green', iconGlyph: 'terminal' },
+  { name: 'pixel-pet', version: '1.1.0', iconColor: 'pink', iconGlyph: 'paw-print' },
+  { name: 'xlyra-user', version: '1.2.0', iconColor: 'purple', iconGlyph: 'user' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>

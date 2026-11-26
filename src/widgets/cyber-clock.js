@@ -10,6 +10,13 @@ import {
   drawPixelText,
   measurePixelText,
 } from '../lib/pixel.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  applyTransparentBackground,
+  isLargeFamily,
+  isTransparentEnabled,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -18,23 +25,13 @@ const updater = createUpdater({
 });
 await updater.autoUpdate();
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 const FAMILY_CANVAS = {
   small: { width: 158, height: 158, clockScale: 4, labelScale: 2 },
   medium: { width: 338, height: 158, clockScale: 7, labelScale: 2 },
   large: { width: 338, height: 354, clockScale: 10, labelScale: 2 },
   extraLarge: { width: 720, height: 338, clockScale: 12, labelScale: 3 },
+  extraLargePortrait: { width: 338, height: 720, clockScale: 10, labelScale: 3 },
 };
 const COLORS = {
   background: new Color('#070B08'),
@@ -122,16 +119,18 @@ const drawNoise = (context, random, width, height) => {
   }
 };
 
-const drawTerminal = (family, now) => {
-  const { width, height, clockScale, labelScale } = FAMILY_CANVAS[family];
+const drawTerminal = (family, now, transparent = false) => {
+  const { width, height, clockScale, labelScale } = FAMILY_CANVAS[family] || FAMILY_CANVAS.medium;
   const context = new DrawContext();
   context.size = new Size(width, height);
-  context.opaque = true;
+  context.opaque = !transparent;
   context.respectScreenScale = true;
 
-  context.setFillColor(COLORS.background);
-  context.fillRect(new Rect(0, 0, width, height));
-  drawGrid(context, width, height);
+  if (!transparent) {
+    context.setFillColor(COLORS.background);
+    context.fillRect(new Rect(0, 0, width, height));
+    drawGrid(context, width, height);
+  }
 
   const minuteSeed = Math.floor(now.getTime() / 60000);
   const random = createSeededRandom(minuteSeed);
@@ -140,7 +139,7 @@ const drawTerminal = (family, now) => {
   const showColon = now.getSeconds() % 2 === 0;
   const timeText = `${pad(now.getHours())}${showColon ? ':' : ' '}${pad(now.getMinutes())}`;
   const timeWidth = measurePixelText(timeText, clockScale);
-  const hasStatus = family === 'large' || family === 'extraLarge';
+  const hasStatus = isLargeFamily(family);
   const timeZoneWidth = family === 'extraLarge' ? width * 0.56 : width;
   const timeX = (timeZoneWidth - timeWidth) / 2;
   const dateGap = Math.round(clockScale * 2.2);
@@ -249,8 +248,16 @@ const createWidget = (family = config.widgetFamily || 'medium') => {
   if (ACCESSORY_FAMILIES.includes(family)) {
     addAccessory(widget, family, now);
   } else {
+    const transparent = isTransparentEnabled(__SCRIPT_ID__);
     widget.setPadding(0, 0, 0, 0);
-    widget.backgroundImage = drawTerminal(family, now);
+    if (transparent) {
+      applyTransparentBackground(widget, __SCRIPT_ID__, { force: true });
+      const canvasSize = FAMILY_CANVAS[family] || FAMILY_CANVAS.medium;
+      const overlay = widget.addImage(drawTerminal(family, now, true));
+      overlay.imageSize = new Size(canvasSize.width, canvasSize.height);
+    } else {
+      widget.backgroundImage = drawTerminal(family, now, false);
+    }
   }
   const nextMinute = new Date(now);
   nextMinute.setSeconds(0, 0);
@@ -264,6 +271,7 @@ if (shouldShowWidgetMenu()) {
     title: '赛博时钟',
     version: __SCRIPT_VERSION__,
     updater,
+    scriptId: __SCRIPT_ID__,
     previewFamilies: PREVIEW_FAMILIES,
   });
   if (menu?.action === 'preview') {

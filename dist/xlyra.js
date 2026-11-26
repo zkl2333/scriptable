@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: purple; icon-glyph: tachometer-alt;
 // @script-id xlyra
-// @version 1.8.0
+// @version 1.9.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -88,6 +88,100 @@ var createUpdater = ({
   return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
 };
 
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var isLargeFamily = (family) => family === "large" || family === "extraLarge" || family === "extraLargePortrait";
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var setTransparentEnabled = (scriptId, enabled) => {
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  const key = transparentKey(scriptId);
+  if (enabled) {
+    Keychain.set(key, "1");
+    return true;
+  }
+  if (Keychain.contains(key)) Keychain.remove(key);
+  return false;
+};
+var toggleTransparentBackground = (scriptId) => {
+  const next = !isTransparentEnabled(scriptId);
+  setTransparentEnabled(scriptId, next);
+  return next;
+};
+var applyTransparentBackground = (widget, scriptId, { isAccessory = false, force = null } = {}) => {
+  if (!widget || isAccessory) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget.backgroundStyle = "transparent";
+  widget.backgroundColor = null;
+  widget.backgroundGradient = null;
+  widget.backgroundImage = null;
+  return true;
+};
+var addRefreshAction = (parent, {
+  title = "刷新组件",
+  id = "refresh",
+  text = "",
+  font = null,
+  textColor = null,
+  iconColor = null,
+  iconSize = 10,
+  backgroundColor = null,
+  cornerRadius = 0,
+  padding = null
+} = {}) => {
+  const stack = parent.addStack();
+  stack.centerAlignContent();
+  if (backgroundColor) stack.backgroundColor = backgroundColor;
+  if (cornerRadius) stack.cornerRadius = cornerRadius;
+  if (padding) stack.setPadding(padding[0], padding[1], padding[2], padding[3]);
+  if (text) {
+    const label = stack.addText(text);
+    if (font) label.font = font;
+    if (textColor) label.textColor = textColor;
+    label.lineLimit = 1;
+    label.minimumScaleFactor = 0.72;
+  }
+  if (typeof stack.setAction === "function") {
+    if (text) stack.addSpacer(4);
+    const symbol = SFSymbol.named("arrow.clockwise");
+    if (symbol?.image) {
+      const icon = stack.addImage(symbol.image);
+      icon.imageSize = new Size(iconSize, iconSize);
+      if (iconColor || textColor) icon.tintColor = iconColor || textColor;
+    }
+    stack.setAction(title, { id });
+  }
+  return stack;
+};
+
 // src/lib/widget-menu.js
 var showMessage = async (title, message) => {
   const alert = new Alert();
@@ -135,6 +229,11 @@ var PREVIEW_DEFINITIONS = {
     method: "presentExtraLarge",
     group: "home"
   },
+  extraLargePortrait: {
+    label: "竖屏超大 Extra Large Portrait",
+    method: "presentExtraLargePortrait",
+    group: "home"
+  },
   accessoryInline: {
     label: "锁屏单行 Inline",
     method: "presentAccessoryInline",
@@ -163,8 +262,13 @@ var normalizePreviewFamilies = (families) => {
   return uniqueFamilies;
 };
 var isPreviewAvailable = (family) => {
-  if (family !== "extraLarge") return true;
-  return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  if (family === "extraLarge") {
+    return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  }
+  if (family === "extraLargePortrait") {
+    return typeof ListWidget !== "undefined" && typeof ListWidget.prototype?.presentExtraLargePortrait === "function";
+  }
+  return true;
 };
 var presentWidget = async (widget, family = "medium") => {
   const { method } = getPreviewDefinition(family);
@@ -234,13 +338,19 @@ var runWidgetMenu = async ({
   version,
   updater: updater2,
   actions = [],
-  previewFamilies = DEFAULT_PREVIEW_FAMILIES
+  previewFamilies = DEFAULT_PREVIEW_FAMILIES,
+  scriptId = null
 }) => {
+  const hasTransparentToggle = Boolean(scriptId);
+  const transparentOn = hasTransparentToggle ? isTransparentEnabled(scriptId) : false;
   const alert = new Alert();
   alert.title = title;
   alert.message = message || `当前版本 v${version}`;
   alert.addAction("预览组件");
   actions.forEach((action) => alert.addAction(action.title));
+  if (hasTransparentToggle) {
+    alert.addAction(`透明背景：${transparentOn ? "已开启" : "未开启"}`);
+  }
   alert.addAction("检查更新");
   alert.addCancelAction("取消操作");
   const index = await alert.presentSheet();
@@ -251,6 +361,14 @@ var runWidgetMenu = async ({
   }
   const actionIndex = index - 1;
   if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  if (hasTransparentToggle && actionIndex === actions.length) {
+    const enabled = toggleTransparentBackground(scriptId);
+    await showMessage(
+      enabled ? "已开启透明背景" : "已关闭透明背景",
+      enabled ? "需 Scriptable 1.8 与 iOS/iPadOS 27.2+；返回主屏幕刷新后生效。" : "已恢复组件默认背景样式；返回主屏幕刷新后生效。"
+    );
+    return null;
+  }
   await checkForUpdate({ updater: updater2, version });
   return null;
 };
@@ -263,14 +381,14 @@ var CONFIG = {
   // 单次请求超时(毫秒)
   autoUpdate: true,
   // 自动更新开关
-  version: "1.8.0"
+  version: "1.9.0"
 };
 var KC_URL = "xlyra.baseURL";
 var KC_URL_LEGACY = "xlyra.consoleURL";
 var KC_TOKEN = "xlyra.adminToken";
 var updater = createUpdater({
   scriptId: "xlyra",
-  version: "1.8.0",
+  version: "1.9.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/xlyra.js"
 });
 if (CONFIG.autoUpdate && !(config.runsInApp && config.runsInActionExtension)) {
@@ -293,18 +411,7 @@ var C = {
   // 位图无法动态换色，选取兼顾米白与黑底的深琥珀
   ledDim: new Color("#d97706", 0.14)
 };
-var ACCESSORY_FAMILIES = [
-  "accessoryInline",
-  "accessoryCircular",
-  "accessoryRectangular"
-];
-var PREVIEW_FAMILIES = [
-  "small",
-  "medium",
-  "large",
-  "extraLarge",
-  ...ACCESSORY_FAMILIES
-];
+var PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 var ACCESSORY_COLOR = Color.dynamic(new Color("#111111"), new Color("#FFFFFF"));
 var ACCESSORY_SECONDARY = Color.dynamic(
   new Color("#111111", 0.62),
@@ -372,7 +479,7 @@ function addLed(parent, text, opts, maxWidth = null) {
   return wi;
 }
 function dotGrid(family) {
-  const [w, h] = family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
+  const [w, h] = family === "small" ? [180, 180] : family === "medium" ? [380, 180] : family === "extraLargePortrait" ? [380, 740] : [380, 400];
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
@@ -394,9 +501,14 @@ function brandRow(w, time) {
   brand.font = MONO_B;
   brand.textColor = C.fg;
   s.addSpacer();
-  const t = s.addText(time);
-  t.font = MONO_SM;
-  t.textColor = C.dim;
+  addRefreshAction(s, {
+    title: "刷新 XLYRA 控制台",
+    text: time,
+    font: MONO_SM,
+    textColor: C.dim,
+    iconColor: C.amber,
+    iconSize: 9
+  });
 }
 function sectionTitle(w, text) {
   const t = w.addText("▸ " + text);
@@ -915,6 +1027,7 @@ async function createWidget(family = config.widgetFamily || "small") {
     w.setPadding(family === "small" ? 14 : 16, 14, family === "small" ? 14 : 16, 14);
     w.backgroundColor = C.bg;
     w.backgroundImage = dotGrid(family);
+    applyTransparentBackground(w, "xlyra");
   }
   const now = /* @__PURE__ */ new Date();
   const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
@@ -963,7 +1076,7 @@ async function createWidget(family = config.widgetFamily || "small") {
   } else {
     if (isAccessory) renderAccessory(w, family, data);
     else if (family === "medium") renderMedium(w, data, time);
-    else if (family === "large" || family === "extraLarge") renderLarge(w, data, time);
+    else if (isLargeFamily(family)) renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
   w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1e3);
@@ -982,6 +1095,7 @@ if (shouldShowWidgetMenu()) {
         message: "数据看板与凭证管理",
         version: CONFIG.version,
         updater,
+        scriptId: "xlyra",
         previewFamilies: PREVIEW_FAMILIES,
         actions: [{ id: "setup", title: "重新配置凭证" }]
       });

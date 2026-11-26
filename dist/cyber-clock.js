@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: green; icon-glyph: terminal;
 // @script-id cyber-clock
-// @version 1.0.0
+// @version 1.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -88,6 +88,64 @@ var createUpdater = ({
   return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
 };
 
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var isLargeFamily = (family) => family === "large" || family === "extraLarge" || family === "extraLargePortrait";
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var setTransparentEnabled = (scriptId, enabled) => {
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  const key = transparentKey(scriptId);
+  if (enabled) {
+    Keychain.set(key, "1");
+    return true;
+  }
+  if (Keychain.contains(key)) Keychain.remove(key);
+  return false;
+};
+var toggleTransparentBackground = (scriptId) => {
+  const next = !isTransparentEnabled(scriptId);
+  setTransparentEnabled(scriptId, next);
+  return next;
+};
+var applyTransparentBackground = (widget, scriptId, { isAccessory = false, force = null } = {}) => {
+  if (!widget || isAccessory) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget.backgroundStyle = "transparent";
+  widget.backgroundColor = null;
+  widget.backgroundGradient = null;
+  widget.backgroundImage = null;
+  return true;
+};
+
 // src/lib/widget-menu.js
 var showMessage = async (title, message) => {
   const alert = new Alert();
@@ -135,6 +193,11 @@ var PREVIEW_DEFINITIONS = {
     method: "presentExtraLarge",
     group: "home"
   },
+  extraLargePortrait: {
+    label: "竖屏超大 Extra Large Portrait",
+    method: "presentExtraLargePortrait",
+    group: "home"
+  },
   accessoryInline: {
     label: "锁屏单行 Inline",
     method: "presentAccessoryInline",
@@ -163,8 +226,13 @@ var normalizePreviewFamilies = (families) => {
   return uniqueFamilies;
 };
 var isPreviewAvailable = (family) => {
-  if (family !== "extraLarge") return true;
-  return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  if (family === "extraLarge") {
+    return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  }
+  if (family === "extraLargePortrait") {
+    return typeof ListWidget !== "undefined" && typeof ListWidget.prototype?.presentExtraLargePortrait === "function";
+  }
+  return true;
 };
 var presentWidget = async (widget, family = "medium") => {
   const { method } = getPreviewDefinition(family);
@@ -234,13 +302,19 @@ var runWidgetMenu = async ({
   version,
   updater: updater2,
   actions = [],
-  previewFamilies = DEFAULT_PREVIEW_FAMILIES
+  previewFamilies = DEFAULT_PREVIEW_FAMILIES,
+  scriptId = null
 }) => {
+  const hasTransparentToggle = Boolean(scriptId);
+  const transparentOn = hasTransparentToggle ? isTransparentEnabled(scriptId) : false;
   const alert = new Alert();
   alert.title = title;
   alert.message = message || `当前版本 v${version}`;
   alert.addAction("预览组件");
   actions.forEach((action) => alert.addAction(action.title));
+  if (hasTransparentToggle) {
+    alert.addAction(`透明背景：${transparentOn ? "已开启" : "未开启"}`);
+  }
   alert.addAction("检查更新");
   alert.addCancelAction("取消操作");
   const index = await alert.presentSheet();
@@ -251,6 +325,14 @@ var runWidgetMenu = async ({
   }
   const actionIndex = index - 1;
   if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  if (hasTransparentToggle && actionIndex === actions.length) {
+    const enabled = toggleTransparentBackground(scriptId);
+    await showMessage(
+      enabled ? "已开启透明背景" : "已关闭透明背景",
+      enabled ? "需 Scriptable 1.8 与 iOS/iPadOS 27.2+；返回主屏幕刷新后生效。" : "已恢复组件默认背景样式；返回主屏幕刷新后生效。"
+    );
+    return null;
+  }
   await checkForUpdate({ updater: updater2, version });
   return null;
 };
@@ -333,27 +415,17 @@ var drawPixelText = (context, text, x, y, scale, color) => {
 // src/widgets/cyber-clock.js
 var updater = createUpdater({
   scriptId: "cyber-clock",
-  version: "1.0.0",
+  version: "1.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/cyber-clock.js"
 });
 await updater.autoUpdate();
-var ACCESSORY_FAMILIES = [
-  "accessoryInline",
-  "accessoryCircular",
-  "accessoryRectangular"
-];
-var PREVIEW_FAMILIES = [
-  "small",
-  "medium",
-  "large",
-  "extraLarge",
-  ...ACCESSORY_FAMILIES
-];
+var PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 var FAMILY_CANVAS = {
   small: { width: 158, height: 158, clockScale: 4, labelScale: 2 },
   medium: { width: 338, height: 158, clockScale: 7, labelScale: 2 },
   large: { width: 338, height: 354, clockScale: 10, labelScale: 2 },
-  extraLarge: { width: 720, height: 338, clockScale: 12, labelScale: 3 }
+  extraLarge: { width: 720, height: 338, clockScale: 12, labelScale: 3 },
+  extraLargePortrait: { width: 338, height: 720, clockScale: 10, labelScale: 3 }
 };
 var COLORS = {
   background: new Color("#070B08"),
@@ -434,22 +506,24 @@ var drawNoise = (context, random, width, height) => {
     ));
   }
 };
-var drawTerminal = (family, now) => {
-  const { width, height, clockScale, labelScale } = FAMILY_CANVAS[family];
+var drawTerminal = (family, now, transparent = false) => {
+  const { width, height, clockScale, labelScale } = FAMILY_CANVAS[family] || FAMILY_CANVAS.medium;
   const context = new DrawContext();
   context.size = new Size(width, height);
-  context.opaque = true;
+  context.opaque = !transparent;
   context.respectScreenScale = true;
-  context.setFillColor(COLORS.background);
-  context.fillRect(new Rect(0, 0, width, height));
-  drawGrid(context, width, height);
+  if (!transparent) {
+    context.setFillColor(COLORS.background);
+    context.fillRect(new Rect(0, 0, width, height));
+    drawGrid(context, width, height);
+  }
   const minuteSeed = Math.floor(now.getTime() / 6e4);
   const random = createSeededRandom(minuteSeed);
   const hourRandom = createSeededRandom(Math.floor(now.getTime() / 36e5));
   const showColon = now.getSeconds() % 2 === 0;
   const timeText = `${pad(now.getHours())}${showColon ? ":" : " "}${pad(now.getMinutes())}`;
   const timeWidth = measurePixelText(timeText, clockScale);
-  const hasStatus = family === "large" || family === "extraLarge";
+  const hasStatus = isLargeFamily(family);
   const timeZoneWidth = family === "extraLarge" ? width * 0.56 : width;
   const timeX = (timeZoneWidth - timeWidth) / 2;
   const dateGap = Math.round(clockScale * 2.2);
@@ -548,8 +622,16 @@ var createWidget = (family = config.widgetFamily || "medium") => {
   if (ACCESSORY_FAMILIES.includes(family)) {
     addAccessory(widget, family, now);
   } else {
+    const transparent = isTransparentEnabled("cyber-clock");
     widget.setPadding(0, 0, 0, 0);
-    widget.backgroundImage = drawTerminal(family, now);
+    if (transparent) {
+      applyTransparentBackground(widget, "cyber-clock", { force: true });
+      const canvasSize = FAMILY_CANVAS[family] || FAMILY_CANVAS.medium;
+      const overlay = widget.addImage(drawTerminal(family, now, true));
+      overlay.imageSize = new Size(canvasSize.width, canvasSize.height);
+    } else {
+      widget.backgroundImage = drawTerminal(family, now, false);
+    }
   }
   const nextMinute = new Date(now);
   nextMinute.setSeconds(0, 0);
@@ -560,8 +642,9 @@ var createWidget = (family = config.widgetFamily || "medium") => {
 if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "赛博时钟",
-    version: "1.0.0",
+    version: "1.1.0",
     updater,
+    scriptId: "cyber-clock",
     previewFamilies: PREVIEW_FAMILIES
   });
   if (menu?.action === "preview") {

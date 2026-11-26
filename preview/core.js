@@ -14,6 +14,14 @@
       group: 'home',
     },
     {
+      id: 'extraLargePortrait',
+      label: '竖屏超大',
+      shortLabel: 'XLP',
+      width: 338,
+      height: 720,
+      group: 'home',
+    },
+    {
       id: 'accessoryInline',
       label: '锁屏单行',
       shortLabel: 'IN',
@@ -169,6 +177,9 @@
         family,
         appearance,
         now: overrides.now instanceof Date ? overrides.now : new Date(),
+        widgetAction: overrides.widgetAction ?? null,
+        widgetParameter: overrides.widgetParameter ?? '',
+        storage: overrides.storage ?? null,
         utils: Object.freeze({ escapeHTML, clamp, formatCompactNumber }),
       });
       if (typeof body !== 'string') throw new TypeError(`组件 ${widgetId} 必须返回 HTML 字符串`);

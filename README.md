@@ -8,21 +8,22 @@
 
 | 组件 | 适用场景 | 支持尺寸 |
 | --- | --- | --- |
-| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板（管理员）：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；首次运行需配置 Admin Token | 小 / 中 / 大 / 锁屏 |
-| [`xlyra-user.js`](./dist/xlyra-user.js) | xLyra 密钥门户看板（下游用户）：余额与用量；来自 anlostyle 二次开发；首次运行需配置 API Key | 小 / 中 / 大 / 锁屏 |
-| [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态：在线设备与实时流量 | 小 / 中 / 大 / 锁屏 |
-| [`work-helper.js`](./dist/work-helper.js) | 工作日历：上下班倒计时、工作进度与下一假期 | 小 / 中 / 大 / 锁屏 |
-| [`time-progress.js`](./dist/time-progress.js) | 时间进度：今日、本周、本月与今年的可视化进度 | 小 / 中 / 大 / 锁屏 |
-| [`cyber-clock.js`](./dist/cyber-clock.js) | 赛博时钟：CRT 荧光点阵风格的时间、日期与年内进度 | 小 / 中 / 大 / 锁屏 |
-| [`today-dashboard.js`](./dist/today-dashboard.js) | 今日面板：聚合今日日程、到期提醒与下一项安排；首次运行需授权日历和提醒事项 | 小 / 中 / 大 / 锁屏 |
-| [`hitokoto.js`](./dist/hitokoto.js) | 一言：每日一句，失败时仍有本地文案兜底 | 小 / 中 / 大 / 锁屏 |
-| [`pixel-pet.js`](./dist/pixel-pet.js) | 像素宠物：史莱姆、小猫、机器人、小鸟四种像素伙伴陪伴桌面 | 小 / 中 / 大 / 锁屏 |
-| [`milk-tea-reminder.js`](./dist/milk-tea-reminder.js) | 奶茶提醒：按时段变化的轻量提醒，可在 App 内发送通知 | 小 / 中 / 大 / 锁屏 |
-| [`render-api-lab.js`](./dist/render-api-lab.js) | 渲染 API 实验室：字体、颜色与 Stack 布局的演示组件 | 小 / 中 / 大 / 锁屏 |
-| [`draw-context-lab.js`](./dist/draw-context-lab.js) | DrawContext 实验室：Fill、Stroke、Path 等绘制原语的演示组件 | 小 / 中 / 大 / 锁屏 |
-| [`accessory-lab.js`](./dist/accessory-lab.js) | 锁屏组件实验室：Inline、Circular、Rectangular 三种样式的演示组件 | 小 / 中 / 大 / 锁屏 |
+| [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板（管理员）：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；支持桌面一键刷新与透明背景；首次运行需配置 Admin Token | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`xlyra-user.js`](./dist/xlyra-user.js) | xLyra 密钥门户看板（下游用户）：余额与用量；来自 anlostyle 二次开发；支持桌面一键刷新与透明背景；首次运行需配置 API Key | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态：在线设备、实时流量、原生进度环/条与桌面一键刷新 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`work-helper.js`](./dist/work-helper.js) | 工作日历：上下班倒计时、原生工作进度条、下一假期与桌面一键刷新 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`time-progress.js`](./dist/time-progress.js) | 时间进度：今日、本周、本月与今年的原生线性/环形进度可视化 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`cyber-clock.js`](./dist/cyber-clock.js) | 赛博时钟：CRT 荧光点阵风格的时间、日期、年内进度与透明悬浮模式 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`today-dashboard.js`](./dist/today-dashboard.js) | 今日面板：聚合今日日程、到期提醒、下一项安排与桌面一键刷新；首次运行需授权日历和提醒事项 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`hitokoto.js`](./dist/hitokoto.js) | 一言：每日一句，支持桌面一键换一句，失败时仍有本地文案兜底 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`pixel-pet.js`](./dist/pixel-pet.js) | 像素宠物：史莱姆、小猫、机器人、小鸟四种像素伙伴，支持桌面直接撸宠与切换伙伴 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`milk-tea-reminder.js`](./dist/milk-tea-reminder.js) | 奶茶提醒：按时段变化的轻量提醒，支持桌面切换口味偏好与今日杯数打卡 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`interactive-lab.js`](./dist/interactive-lab.js) | v1.8 交互实验室：原生进度环/条、交互按钮、开关、刷新按钮与透明背景的完整示例 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`render-api-lab.js`](./dist/render-api-lab.js) | 渲染 API 实验室：字体、颜色与 Stack 布局的演示组件 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`draw-context-lab.js`](./dist/draw-context-lab.js) | DrawContext 实验室：Fill、Stroke、Path 与旋转图片绘制原语的演示组件 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`accessory-lab.js`](./dist/accessory-lab.js) | 锁屏组件实验室：Inline、Circular、Rectangular 三种样式的演示组件 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
 
-> 锁屏组件包含行内、圆形和矩形三种样式；具体展示内容会随尺寸自动调整。
+> 已适配 **Scriptable 1.8** 新能力（交互式按钮/开关/刷新按钮、`addProgress` 原生进度环/条、`backgroundStyle = "transparent"` 透明背景、`extraLargePortrait` 竖屏超大尺寸与 `DrawContext` 旋转绘制），并在低版本 Scriptable 上自动降级兼容。业务组件均可在 App 内菜单开关透明背景，或在桌面 Widget Parameter 填写 `transparent` 单独开启。
 
 ## 安装
 
@@ -50,7 +51,7 @@
 
 ![Scriptable 组件总览](./image/preview/overview.png)
 
-本地运行 `npm run preview`，再访问 `http://127.0.0.1:4175`。页面支持总览与单组件模式、7 种主屏及锁屏尺寸和明暗外观。`preview/core.js` 是不依赖页面 DOM 和具体组件的独立预览核心；`preview/runtime.js` 提供浏览器版 Scriptable API，直接执行 `dist/*.js` 并把真实 `ListWidget` 树转换成 DOM。`preview/widgets.js` 只保留组件目录元数据，不再重复维护组件布局。
+本地运行 `npm run preview`，再访问 `http://127.0.0.1:4175`。页面支持总览与单组件模式、8 种主屏及锁屏尺寸（含竖屏超大）、明暗外观、透明背景预览，以及直接点击组件内交互按钮/开关触发实时重渲染。`preview/core.js` 是不依赖页面 DOM 和具体组件的独立预览核心；`preview/runtime.js` 提供浏览器版 Scriptable API，直接执行 `dist/*.js` 并把真实 `ListWidget` 树转换成 DOM。`preview/widgets.js` 只保留组件目录元数据，不再重复维护组件布局。
 
 ```powershell
 npm ci

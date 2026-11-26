@@ -16,7 +16,7 @@ assert.match(source, /updateURL: __UPDATE_URL__/);
 await access(distPath);
 const dist = await readFile(distPath, 'utf8');
 assert.match(dist, /@script-id xlyra-user/);
-assert.match(dist, /@version 1\.1\.1/);
+assert.match(dist, /@version 1\.2\.0/);
 assert.match(dist, /用户版二次开发：anlostyle/);
 assert.match(dist, /raw\.githubusercontent\.com\/zkl2333\/scriptable\/main\/dist\/xlyra-user\.js/);
 

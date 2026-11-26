@@ -5,6 +5,15 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addCircularProgress,
+  addLinearProgress,
+  applyTransparentBackground,
+  attachStackAction,
+  isLargeFamily,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -568,7 +577,11 @@ const configureRouter = async () => {
 
 const getWidgetInfo = () => {
   const parameter = String(args.widgetParameter || '').trim();
-  const info = parameter ? createInfo(parameter) : loadStoredInfo();
+  const fromParam = parameter ? createInfo(parameter) : null;
+  const info =
+    fromParam && fromParam.username && fromParam.password && fromParam.host && fromParam.port
+      ? fromParam
+      : loadStoredInfo();
   if (!info.username || !info.password || !info.host || !info.port) {
     throw new Error('请先在 Scriptable App 内运行脚本，完成爱快路由器配置');
   }
@@ -703,18 +716,7 @@ const collectMetrics = (sysstat) => {
   };
 };
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 const ACCESSORY_COLOR = Color.dynamic(new Color('#111111'), new Color('#FFFFFF'));
 const ACCESSORY_SECONDARY = Color.dynamic(
   new Color('#111111', 0.62),
@@ -827,18 +829,21 @@ const buildHeader = (
 
   row.addSpacer();
 
-  const dot = row.addText("●");
+  const statusStack = row.addStack();
+  statusStack.centerAlignContent();
+  const dot = statusStack.addText("●");
   dot.font = Font.systemFont(7);
   dot.textColor = new Color(COLORS.up);
-  row.addSpacer(4);
+  statusStack.addSpacer(4);
   const statusText = updatedAt
     ? `在线 ${uptimeText}  ·  ${updatedAt}`
     : `在线 ${uptimeText}`;
-  const uptime = row.addText(statusText);
+  const uptime = statusStack.addText(statusText);
   uptime.font = Font.mediumSystemFont(9);
   uptime.textColor = new Color(COLORS.muted);
   uptime.lineLimit = 1;
   uptime.minimumScaleFactor = 0.75;
+  attachStackAction(statusStack, '刷新路由器状态', 'refresh');
 };
 
 // 实时速率单元格：箭头 + 标签 + 数值/单位
@@ -912,8 +917,16 @@ const addGaugeCell = (parent, label, percent, colorHex, barWidth = 60) => {
 
   cell.addSpacer(6);
 
-  const bar = cell.addImage(drawBarImage(percent / 100, colorHex));
-  bar.imageSize = new Size(barWidth, 4);
+  addLinearProgress(cell, percent, {
+    width: barWidth,
+    thickness: 4,
+    progressColor: new Color(colorHex),
+    trackColor: new Color(COLORS.ringTrack),
+    fallback: () => {
+      const bar = cell.addImage(drawBarImage(percent / 100, colorHex));
+      bar.imageSize = new Size(barWidth, 4);
+    },
+  });
 };
 
 // 中号组件使用的紧凑横向负载条
@@ -935,8 +948,16 @@ const addGaugeRow = (parent, label, percent, colorHex, barWidth = 78) => {
   valueText.textColor = new Color(COLORS.text);
 
   parent.addSpacer(4);
-  const bar = parent.addImage(drawBarImage(percent / 100, colorHex));
-  bar.imageSize = new Size(barWidth, 4);
+  addLinearProgress(parent, percent, {
+    width: barWidth,
+    thickness: 4,
+    progressColor: new Color(colorHex),
+    trackColor: new Color(COLORS.ringTrack),
+    fallback: () => {
+      const bar = parent.addImage(drawBarImage(percent / 100, colorHex));
+      bar.imageSize = new Size(barWidth, 4);
+    },
+  });
 };
 
 // 通用信息单元格：标签 + 数值
@@ -980,10 +1001,28 @@ const addTotalsLine = (parent, metrics) => {
   up.textColor = new Color(COLORS.text);
 };
 
-// 添加环形进度图
-const addRing = (parent, image, size) => {
-  const img = parent.addImage(image);
-  img.imageSize = new Size(size, size);
+// 添加环形进度图（优先原生 addProgress，旧版 Scriptable 降级位图）
+const addRing = (parent, { image, size, percent, label, colorHex }) => {
+  addCircularProgress(parent, percent, {
+    size,
+    thickness: 7,
+    progressColor: new Color(colorHex),
+    trackColor: new Color(COLORS.ringTrack),
+    buildCenter: (ring) => {
+      const valueText = ring.addText(`${percent}%`);
+      valueText.font = Font.boldRoundedSystemFont(16);
+      valueText.textColor = new Color(COLORS.text);
+      valueText.centerAlignText();
+      const labelText = ring.addText(label);
+      labelText.font = Font.mediumSystemFont(10);
+      labelText.textColor = new Color(COLORS.muted);
+      labelText.centerAlignText();
+    },
+    fallback: () => {
+      const img = parent.addImage(image);
+      img.imageSize = new Size(size, size);
+    },
+  });
 };
 
 // 小尺寸：标题 + 速率 + 资源 + 累计
@@ -1096,9 +1135,21 @@ const buildLargeLayout = (widget, metrics, logo, rings, updatedAt) => {
 
   const gaugeStack = main.addStack();
   gaugeStack.centerAlignContent();
-  addRing(gaugeStack, rings.cpu, rings.size);
+  addRing(gaugeStack, {
+    image: rings.cpu,
+    size: rings.size,
+    percent: metrics.cpu,
+    label: 'CPU',
+    colorHex: COLORS.cpu,
+  });
   gaugeStack.addSpacer(14);
-  addRing(gaugeStack, rings.mem, rings.size);
+  addRing(gaugeStack, {
+    image: rings.mem,
+    size: rings.size,
+    percent: metrics.mem,
+    label: '内存',
+    colorHex: COLORS.mem,
+  });
 
   main.addSpacer(20);
   addVDivider(main);
@@ -1271,7 +1322,7 @@ const buildFailureLayout = (widget, family, displayError) => {
 async function createWidget(info, family = config.widgetFamily || 'medium') {
   const widget = new ListWidget();
   const isAccessory = ACCESSORY_FAMILIES.includes(family);
-  const isLarge = family === 'large' || family === 'extraLarge';
+  const isLarge = isLargeFamily(family);
 
   if (!isAccessory) {
     const gradient = new LinearGradient();
@@ -1280,6 +1331,7 @@ async function createWidget(info, family = config.widgetFamily || 'medium') {
     gradient.startPoint = new Point(0, 0);
     gradient.endPoint = new Point(0, 1);
     widget.backgroundGradient = gradient;
+    applyTransparentBackground(widget, __SCRIPT_ID__);
 
     if (family === 'small') {
       widget.setPadding(13, 14, 11, 14);
@@ -1378,6 +1430,7 @@ if (shouldShowWidgetMenu()) {
       title: '爱快路由器',
       version: __SCRIPT_VERSION__,
       updater,
+      scriptId: __SCRIPT_ID__,
       previewFamilies: PREVIEW_FAMILIES,
       actions: [
         {

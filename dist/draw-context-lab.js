@@ -2,7 +2,50 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: purple; icon-glyph: pencil-alt;
 // @script-id draw-context-lab
-// @version 1.0.0
+// @version 1.1.0
+
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var isLargeFamily = (family2) => family2 === "large" || family2 === "extraLarge" || family2 === "extraLargePortrait";
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var applyTransparentBackground = (widget2, scriptId, { isAccessory: isAccessory2 = false, force = null } = {}) => {
+  if (!widget2 || isAccessory2) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget2.backgroundStyle = "transparent";
+  widget2.backgroundColor = null;
+  widget2.backgroundGradient = null;
+  widget2.backgroundImage = null;
+  return true;
+};
 
 // src/widgets/draw-context-lab.js
 var family = config.widgetFamily || "medium";
@@ -46,14 +89,17 @@ var makeCanvas = (width, height) => {
   context.drawTextInRect("DRAW OPS", new Rect(width - 76, 16, 64, 13));
   context.setTextAlignedRight();
   context.setFont(Font.regularMonospacedSystemFont(8));
+  context.setFontSize(8);
   context.drawText("FILL · STROKE · PATH", new Point(width - 10, height - 14));
   const symbol = SFSymbol.named("arrow.up").image;
   context.drawImageAtPoint(symbol, new Point(16, height - 35));
+  context.drawImageInRect(symbol, new Rect(40, height - 35, 16, 16), 45);
   return context.getImage();
 };
 var widget = new ListWidget();
 widget.setPadding(isAccessory ? 0 : 14, isAccessory ? 0 : 16, isAccessory ? 0 : 14, isAccessory ? 0 : 16);
 widget.backgroundColor = Color.dynamic(new Color("#F7FAFF"), new Color("#171D27"));
+applyTransparentBackground(widget, "draw-context-lab", { isAccessory });
 if (isAccessory) {
   widget.addAccessoryWidgetBackground = true;
   const image = widget.addImage(makeCanvas(family === "accessoryCircular" ? 60 : 150, family === "accessoryCircular" ? 60 : 48));
@@ -76,7 +122,7 @@ if (isAccessory) {
   caption.textColor = muted;
   widget.addSpacer(8);
   const width = family === "small" ? 126 : 306;
-  const height = family === "small" ? 86 : family === "large" ? 158 : 94;
+  const height = family === "small" ? 86 : family === "extraLargePortrait" ? 420 : isLargeFamily(family) ? 158 : 94;
   const image = widget.addImage(makeCanvas(width, height));
   image.imageSize = new Size(width, height);
   image.cornerRadius = 12;
@@ -84,7 +130,7 @@ if (isAccessory) {
   image.borderColor = new Color("#2F6BFF", 0.28);
   image.applyFillingContentMode();
   widget.addSpacer(7);
-  const note = widget.addText("fill / stroke / path / text / symbol");
+  const note = widget.addText("fill / stroke / path / text / rotate");
   note.font = Font.regularMonospacedSystemFont(9);
   note.textColor = muted;
   note.lineLimit = 1;

@@ -1,3 +1,5 @@
+import { applyTransparentBackground, isLargeFamily } from '../lib/widget-v18.js';
+
 const family = config.widgetFamily || 'medium';
 const isAccessory = family.startsWith('accessory');
 
@@ -133,13 +135,14 @@ const addHome = (widget) => {
     offset.applyOffsetStyle();
   }
 
-  if (family === 'large' || family === 'extraLarge') {
+  if (isLargeFamily(family)) {
     widget.addSpacer();
     const foot = widget.addText('Text · Date · Image · Stack · Gradient');
     foot.font = Font.regularMonospacedSystemFont(9);
     foot.textColor = palette.muted;
     foot.centerAlignText();
   }
+  applyTransparentBackground(widget, __SCRIPT_ID__);
 };
 
 const widget = new ListWidget();

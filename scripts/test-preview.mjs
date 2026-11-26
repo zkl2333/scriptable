@@ -38,7 +38,7 @@ const previewHTML = await readFile(new URL('../preview/index.html', import.meta.
 assert.ok(core);
 assert.ok(runtime);
 assert.ok(globalThis.ScriptablePreviewSymbols);
-assert.equal(core.families.length, 7);
+assert.equal(core.families.length, 8);
 assert.deepEqual(
   core.families.map(({ id }) => id),
   [
@@ -46,6 +46,7 @@ assert.deepEqual(
     'medium',
     'large',
     'extraLarge',
+    'extraLargePortrait',
     'accessoryInline',
     'accessoryCircular',
     'accessoryRectangular',
@@ -58,6 +59,7 @@ assert.deepEqual(
     'render-api-lab',
     'draw-context-lab',
     'accessory-lab',
+    'interactive-lab',
     'ikuai',
     'milk-tea-reminder',
     'time-progress',
@@ -69,7 +71,7 @@ assert.deepEqual(
     'pixel-pet',
   ]
 );
-assert.equal(new Set(widgets.map(({ id }) => id)).size, 13);
+assert.equal(new Set(widgets.map(({ id }) => id)).size, 14);
 
 const engine = core.createPreviewEngine({ widgets });
 assert.deepEqual(engine.getState(), {
@@ -204,8 +206,103 @@ const drawContextBody = runtime.renderWidgetTree(drawContextTree, { now: fixedNo
 assert.match(drawContextBody, /stroke-width="2"/);
 assert.match(drawContextBody, /text-anchor="end"/);
 assert.match(drawContextBody, /<path d="M /);
+assert.match(drawContextBody, /transform="rotate\(45 /);
 assert.match(drawContextBody, /sp-image--fill/);
 assert.doesNotMatch(drawContextBody, /sp-symbol-fallback/);
+
+// Scriptable 1.8 新能力测试：addProgress、addButton、addRefreshButton、addToggle、setAction、backgroundStyle、args.widgetAction
+const v18Storage = { files: new Map(), keychain: new Map() };
+const interactiveSource = await readFile(new URL('../dist/interactive-lab.js', import.meta.url), 'utf8');
+const interactiveInitTree = await runtime.executeSource({
+  source: interactiveSource,
+  scriptId: 'interactive-lab',
+  family: 'large',
+  appearance: 'light',
+  now: fixedNow,
+  storage: v18Storage,
+});
+const interactiveInitBody = runtime.renderWidgetTree(interactiveInitTree, {
+  now: fixedNow,
+  size: { width: 338, height: 354 },
+});
+assert.match(interactiveInitBody, /data-progress-style="circular"/, '应渲染原生环形进度指示器');
+assert.match(interactiveInitBody, /data-progress-style="linear"/, '应渲染原生条形进度指示器');
+assert.match(interactiveInitBody, /data-widget-action-id="add"/, '应渲染原生交互按钮');
+assert.match(interactiveInitBody, /data-widget-refresh="true"/, '应渲染原生刷新按钮');
+assert.match(interactiveInitBody, /role="switch"[^>]*data-widget-action-id="transparent"/, '应渲染原生开关控件');
+assert.match(interactiveInitBody, />750</);
+assert.doesNotMatch(interactiveInitBody, /sp-symbol-fallback/);
+
+const interactiveAddedTree = await runtime.executeSource({
+  source: interactiveSource,
+  scriptId: 'interactive-lab',
+  family: 'large',
+  appearance: 'light',
+  now: fixedNow,
+  widgetAction: { id: 'add' },
+  storage: v18Storage,
+});
+const interactiveAddedBody = runtime.renderWidgetTree(interactiveAddedTree, {
+  now: fixedNow,
+  size: { width: 338, height: 354 },
+});
+assert.match(interactiveAddedBody, />1000</, '触发 add widgetAction 后饮水量应持久化递增');
+
+const interactiveTransparentTree = await runtime.executeSource({
+  source: interactiveSource,
+  scriptId: 'interactive-lab',
+  family: 'large',
+  appearance: 'light',
+  now: fixedNow,
+  widgetAction: { id: 'transparent', isOn: true },
+  storage: v18Storage,
+});
+assert.equal(interactiveTransparentTree.backgroundStyle, 'transparent', '开关应启用 transparent backgroundStyle');
+const interactiveTransparentBody = runtime.renderWidgetTree(interactiveTransparentTree, {
+  now: fixedNow,
+  size: { width: 338, height: 354 },
+});
+assert.match(interactiveTransparentBody, /sp-transparent-background/, '透明背景应输出透明样式类');
+assert.match(interactiveTransparentBody, /data-background-style="transparent"/);
+
+// 业务组件交互与透明背景参数覆盖测试：pixel-pet 与 milk-tea-reminder
+const petStorage = { files: new Map(), keychain: new Map() };
+const petSource = await readFile(new URL('../dist/pixel-pet.js', import.meta.url), 'utf8');
+const petAfterTap = await runtime.executeSource({
+  source: petSource,
+  scriptId: 'pixel-pet',
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+  widgetAction: { id: 'pet' },
+  widgetParameter: 'transparent',
+  storage: petStorage,
+});
+assert.equal(petAfterTap.backgroundStyle, 'transparent', 'widgetParameter=transparent 应生效');
+const petAfterTapBody = runtime.renderWidgetTree(petAfterTap, {
+  now: fixedNow,
+  size: { width: 338, height: 158 },
+});
+assert.match(petAfterTapBody, /被撸了 1 次/, '像素宠物应响应 pet 交互动作');
+assert.match(petAfterTapBody, /data-widget-action-id="switch"/);
+
+const milkStorage = { files: new Map(), keychain: new Map() };
+const milkSource = await readFile(new URL('../dist/milk-tea-reminder.js', import.meta.url), 'utf8');
+const milkAfterCup = await runtime.executeSource({
+  source: milkSource,
+  scriptId: 'milk-tea-reminder',
+  family: 'medium',
+  appearance: 'light',
+  now: fixedNow,
+  widgetAction: { id: 'cup-add' },
+  storage: milkStorage,
+});
+const milkAfterCupBody = runtime.renderWidgetTree(milkAfterCup, {
+  now: fixedNow,
+  size: { width: 338, height: 158 },
+});
+assert.match(milkAfterCupBody, /今日 1 杯 \+/, '奶茶提醒应响应 cup-add 计数动作');
+assert.match(milkAfterCupBody, /data-widget-action-id="cup-reset"/, '记录杯数后应出现清零交互标签');
 
 const dateStyleFixture = `
 const widget = new ListWidget();
@@ -501,7 +598,158 @@ assert.match(
   '布局引擎应把 border 计入内容空间侵占（16.5 + 14 + 2×1）'
 );
 
-// 全部真实组件走布局引擎路径的冒烟测试（浏览器路径与之一致）
+// 二维布局引擎与渲染内核进阶测试：
+// 1. 显式 \n 换行 + 真实断行 + 纵向多行 minimumScaleFactor 联合求解
+const multilineFixture = `
+const widget = new ListWidget();
+widget.setPadding(10, 10, 10, 10);
+const explicit = widget.addText('第一行\\n第二行');
+explicit.font = Font.systemFont(14);
+const scaledMulti = widget.addText('这是一段在两行限制下需要触发缩小字号的长中文描述内容用于验证多行缩放算法');
+scaledMulti.font = Font.systemFont(16);
+scaledMulti.lineLimit = 2;
+scaledMulti.minimumScaleFactor = 0.5;
+Script.setWidget(widget);
+Script.complete();
+`;
+const multilineTree = await runtime.executeSource({
+  source: multilineFixture,
+  scriptId: 'multiline-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const multilineLaid = runtime.annotateLayoutTree(multilineTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.equal(multilineLaid.elements[0]._lines.length, 2, '显式 \\n 应拆分为两行');
+assert.ok(
+  multilineLaid.elements[0]._frame.height >= 30,
+  '两行显式换行文本应占据两行高度'
+);
+assert.ok(
+  multilineLaid.elements[1]._fontScale < 16 && multilineLaid.elements[1]._fontScale >= 8,
+  '纵向多行 lineLimit + minimumScaleFactor 应触发二分缩字号'
+);
+
+// 2. 横向 Stack 嵌套纵向折行文本的二维交叉轴高度联动回流
+const coupledFixture = `
+const widget = new ListWidget();
+widget.setPadding(10, 10, 10, 10);
+const row = widget.addStack();
+const left = row.addStack();
+left.size = new Size(80, 20);
+left.addText('LEFT');
+const right = row.addStack();
+right.layoutVertically();
+const wrap = right.addText('中文自动折行触发高度回流验证');
+wrap.font = Font.systemFont(14);
+Script.setWidget(widget);
+Script.complete();
+`;
+const coupledTree = await runtime.executeSource({
+  source: coupledFixture,
+  scriptId: 'coupled-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const coupledLaid = runtime.annotateLayoutTree(coupledTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+const rowFrame = coupledLaid.elements[0]._frame;
+const rightLines = coupledLaid.elements[0].elements[1].elements[0]._lines;
+assert.ok(rightLines.length >= 3, '受压纵向子 Stack 内的文本应按可用宽度真实折行');
+assert.ok(rowFrame.height >= rightLines.length * 14, '父横向 Stack 高度应随子 Stack 折行联动增长');
+
+// 3. accessoryInline 单图单文过滤规则（WidgetKit 官方语义）
+const inlineFilterFixture = `
+const widget = new ListWidget();
+const row = widget.addStack();
+row.addImage(SFSymbol.named('circle').image);
+row.addImage(SFSymbol.named('calendar').image);
+row.addText('保留主文本');
+row.addText('会被过滤的次文本');
+Script.setWidget(widget);
+Script.complete();
+`;
+const inlineFilterTree = await runtime.executeSource({
+  source: inlineFilterFixture,
+  scriptId: 'inline-filter-fixture',
+  family: 'accessoryInline',
+  appearance: 'light',
+  now: fixedNow,
+});
+const inlineFilterBody = runtime.renderWidgetTree(inlineFilterTree, {
+  now: fixedNow,
+  size: { width: 160, height: 26 },
+  family: 'accessoryInline',
+});
+assert.match(inlineFilterBody, /aria-label="circle"/);
+assert.doesNotMatch(inlineFilterBody, /aria-label="calendar"/, 'accessoryInline 应过滤多余图片');
+assert.match(inlineFilterBody, /保留主文本/);
+assert.doesNotMatch(inlineFilterBody, /会被过滤的次文本/, 'accessoryInline 应过滤多余文本');
+
+// 4. containerRelativeShape 同心圆角 + resizable=false + 位图 tintColor 模板着色 + 有序 Path + 多行 drawTextInRect + Font Dynamic Type
+const graphicsFixture = `
+const widget = new ListWidget();
+widget.setPadding(10, 10, 10, 10);
+const ctx = new DrawContext();
+ctx.size = new Size(80, 50);
+ctx.opaque = false;
+const p = new Path();
+p.move(new Point(2, 2));
+p.addLine(new Point(20, 2));
+p.addRect(new Rect(10, 10, 12, 12));
+p.addEllipse(new Rect(30, 10, 12, 12));
+ctx.addPath(p);
+ctx.setFillColor(Color.white());
+ctx.fillPath();
+ctx.setFont(Font.caption1());
+ctx.setTextColor(Color.white());
+ctx.drawTextInRect('第一行测试文本自动折行', new Rect(4, 24, 48, 24));
+const img = widget.addImage(ctx.getImage());
+img.resizable = false;
+img.imageSize = new Size(20, 20);
+img.containerRelativeShape = true;
+img.tintColor = Color.red();
+const sym = SFSymbol.named('circle');
+sym.applyBoldWeight();
+const h = widget.addText('HIG');
+h.font = Font.headline();
+Script.setWidget(widget);
+Script.complete();
+`;
+const graphicsTree = await runtime.executeSource({
+  source: graphicsFixture,
+  scriptId: 'graphics-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const drawOps = graphicsTree.elements[0].codableImage.ops;
+assert.deepEqual(
+  drawOps.slice(0, 3).map((op) => op.type),
+  ['path', 'fillRect', 'fillEllipse'],
+  'Path 混合命令应严格保持调用顺序'
+);
+const graphicsBody = runtime.renderWidgetTree(graphicsTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+});
+assert.match(graphicsBody, /width:80px;height:50px/, 'resizable=false 应保持图片固有尺寸');
+assert.match(graphicsBody, /border-radius:12px/, 'padding=10 时 containerRelativeShape 同心圆角应为 22-10=12px');
+assert.match(graphicsBody, /data-tinted="true"/, 'draw 图像设置 tintColor 应生成 Alpha 模板着色滤镜');
+assert.match(graphicsBody, /<feComposite in="flood" in2="SourceAlpha" operator="in"\/>/);
+assert.ok(
+  (graphicsBody.match(/<text /g) || []).length >= 2,
+  'DrawContext.drawTextInRect 应对超宽文本生成多行 <text>'
+);
+assert.match(graphicsBody, /font-size:17px;font-weight:600/, 'Font.headline() 应映射 17px semibold');
+
+// 全部真实组件走布局引擎路径的冒烟测试（含暗黑 + 透明背景参数验证，确保无缺失 SF Symbol）
 for (const widget of widgets) {
   const source = await readFile(new URL(`../dist/${widget.id}.js`, import.meta.url), 'utf8');
   for (const family of core.families) {
@@ -518,6 +766,30 @@ for (const widget of widgets) {
     });
     assert.match(body, /class="sp-node sp-runtime-root/);
     assert.doesNotMatch(body, /undefined|NaN/);
+    assert.doesNotMatch(body, /sp-symbol-fallback/, `${widget.id}@${family.id} 存在未映射的 SF Symbol`);
+
+    if (family.group === 'home') {
+      const transparentTree = await runtime.executeSource({
+        source,
+        scriptId: widget.id,
+        family: family.id,
+        appearance: 'dark',
+        now: fixedNow,
+        widgetParameter: 'transparent',
+      });
+      assert.equal(
+        transparentTree.backgroundStyle,
+        'transparent',
+        `${widget.id}@${family.id} 应响应 transparent 参数`
+      );
+      const transparentBody = runtime.renderWidgetTree(transparentTree, {
+        now: fixedNow,
+        appearance: 'dark',
+        size: { width: family.width, height: family.height },
+      });
+      assert.match(transparentBody, /sp-transparent-background/);
+      assert.doesNotMatch(transparentBody, /undefined|NaN/);
+    }
   }
 }
 

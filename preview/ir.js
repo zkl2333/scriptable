@@ -64,6 +64,38 @@
     };
   };
 
+  const progressToIR = (progress) => {
+    if (!progress) return null;
+    const style = progress.style === 'linear' ? 'linear' : 'circular';
+    return {
+      value: Math.min(100, Math.max(0, Number(progress.value) || 0)),
+      style,
+      progressColor: colorToIR(progress.progressColor),
+      trackColor: colorToIR(progress.trackColor),
+      thickness: Number(progress.thickness) > 0 ? Number(progress.thickness) : (style === 'linear' ? 6 : 5),
+    };
+  };
+
+  const actionToIR = (action) => {
+    if (!action || !action.id) return null;
+    return {
+      title: String(action.title ?? ''),
+      id: String(action.id),
+    };
+  };
+
+  const drawOpToIR = (op) => {
+    const base = {
+      ...op,
+      color: op.color ? colorToIR(op.color) : null,
+    };
+    if (op.type === 'image') {
+      base.image = op.image?.__kind ? imageToIR(op.image) : op.image || null;
+      base.rotation = Number.isFinite(Number(op.rotation)) ? Number(op.rotation) : 0;
+    }
+    return base;
+  };
+
   const imageToIR = (image) => {
     if (!image) return null;
     switch (image.__kind) {
@@ -73,7 +105,7 @@
         return {
           kind: 'draw',
           size: sizeToIR(image.size),
-          ops: (image.ops || []).map((op) => ({ ...op, color: op.color ? colorToIR(op.color) : null })),
+          ops: (image.ops || []).map(drawOpToIR),
         };
       case 'remote':
         return { kind: 'remote', url: String(image.url) };
@@ -82,9 +114,27 @@
     }
   };
 
-  const ELEMENT_TYPES = ['text', 'date', 'image', 'spacer', 'stack'];
+  const ELEMENT_TYPES = ['text', 'date', 'image', 'spacer', 'stack', 'button', 'refreshButton', 'toggle'];
 
   const baseElement = (type) => ({ type, identifier: nextIdentifier() });
+
+  const irButton = (title, actionId) => ({
+    ...baseElement('button'),
+    title: String(title ?? ''),
+    actionId: String(actionId ?? ''),
+  });
+
+  const irRefreshButton = (title) => ({
+    ...baseElement('refreshButton'),
+    title: String(title ?? ''),
+  });
+
+  const irToggle = (title, isOn, actionId) => ({
+    ...baseElement('toggle'),
+    title: String(title ?? ''),
+    isOn: Boolean(isOn),
+    actionId: String(actionId ?? ''),
+  });
 
   const irText = () => ({
     ...baseElement('text'),
@@ -140,6 +190,8 @@
     borderColor: null,
     padding: null,
     rawOpenURL: null,
+    progress: null,
+    action: null,
   });
 
   const irList = () => ({
@@ -147,6 +199,7 @@
     backgroundColor: null,
     backgroundGradient: null,
     backgroundImage: null,
+    backgroundStyle: 'default',
     padding: null,
     spacing: 0,
     openURL: null,
@@ -185,12 +238,17 @@
     sizeToIR,
     gradientToIR,
     imageToIR,
+    progressToIR,
+    actionToIR,
     irText,
     irDate,
     irImage,
     irSpacer,
     irStack,
     irList,
+    irButton,
+    irRefreshButton,
+    irToggle,
     validateIR,
     resetIdentifiers: () => { identifierSequence = 0; },
   });

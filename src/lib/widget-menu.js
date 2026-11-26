@@ -1,3 +1,8 @@
+import {
+  isTransparentEnabled,
+  toggleTransparentBackground,
+} from './widget-v18.js';
+
 const showMessage = async (title, message) => {
   const alert = new Alert();
   alert.title = title;
@@ -51,6 +56,11 @@ const PREVIEW_DEFINITIONS = {
     method: 'presentExtraLarge',
     group: 'home',
   },
+  extraLargePortrait: {
+    label: '竖屏超大 Extra Large Portrait',
+    method: 'presentExtraLargePortrait',
+    group: 'home',
+  },
   accessoryInline: {
     label: '锁屏单行 Inline',
     method: 'presentAccessoryInline',
@@ -82,12 +92,20 @@ const normalizePreviewFamilies = (families) => {
 };
 
 const isPreviewAvailable = (family) => {
-  if (family !== 'extraLarge') return true;
-  return (
-    typeof Device !== 'undefined' &&
-    typeof Device.isPad === 'function' &&
-    Device.isPad()
-  );
+  if (family === 'extraLarge') {
+    return (
+      typeof Device !== 'undefined' &&
+      typeof Device.isPad === 'function' &&
+      Device.isPad()
+    );
+  }
+  if (family === 'extraLargePortrait') {
+    return (
+      typeof ListWidget !== 'undefined' &&
+      typeof ListWidget.prototype?.presentExtraLargePortrait === 'function'
+    );
+  }
+  return true;
 };
 
 export const presentWidget = async (widget, family = 'medium') => {
@@ -171,12 +189,19 @@ export const runWidgetMenu = async ({
   updater,
   actions = [],
   previewFamilies = DEFAULT_PREVIEW_FAMILIES,
+  scriptId = null,
 }) => {
+  const hasTransparentToggle = Boolean(scriptId);
+  const transparentOn = hasTransparentToggle ? isTransparentEnabled(scriptId) : false;
+
   const alert = new Alert();
   alert.title = title;
   alert.message = message || `当前版本 v${version}`;
   alert.addAction('预览组件');
   actions.forEach((action) => alert.addAction(action.title));
+  if (hasTransparentToggle) {
+    alert.addAction(`透明背景：${transparentOn ? '已开启' : '未开启'}`);
+  }
   alert.addAction('检查更新');
   alert.addCancelAction('取消操作');
 
@@ -189,6 +214,16 @@ export const runWidgetMenu = async ({
 
   const actionIndex = index - 1;
   if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  if (hasTransparentToggle && actionIndex === actions.length) {
+    const enabled = toggleTransparentBackground(scriptId);
+    await showMessage(
+      enabled ? '已开启透明背景' : '已关闭透明背景',
+      enabled
+        ? '需 Scriptable 1.8 与 iOS/iPadOS 27.2+；返回主屏幕刷新后生效。'
+        : '已恢复组件默认背景样式；返回主屏幕刷新后生效。'
+    );
+    return null;
+  }
   await checkForUpdate({ updater, version });
   return null;
 };

@@ -5,6 +5,13 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addRefreshAction,
+  applyTransparentBackground,
+  isLargeFamily,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -13,18 +20,7 @@ const updater = createUpdater({
 });
 await updater.autoUpdate();
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 const COLORS = {
   text: Color.dynamic(new Color('#24211D'), new Color('#F4F0E8')),
   muted: Color.dynamic(new Color('#777069'), new Color('#AAA39A')),
@@ -86,6 +82,7 @@ const addMain = (widget, family, quote) => {
   gradient.startPoint = new Point(0, 0);
   gradient.endPoint = new Point(1, 1);
   widget.backgroundGradient = gradient;
+  applyTransparentBackground(widget, __SCRIPT_ID__);
   widget.setPadding(family === 'small' ? 14 : 18, family === 'small' ? 14 : 20, 14, family === 'small' ? 14 : 20);
 
   const header = widget.addStack();
@@ -97,10 +94,19 @@ const addMain = (widget, family, quote) => {
   const label = header.addText('一言');
   label.font = Font.semiboldSystemFont(11);
   label.textColor = COLORS.muted;
+  header.addSpacer();
+  addRefreshAction(header, {
+    title: '换一句一言',
+    text: family === 'small' ? '' : '换一句',
+    font: Font.mediumSystemFont(10),
+    textColor: COLORS.muted,
+    iconColor: COLORS.accent,
+    iconSize: 11,
+  });
 
   widget.addSpacer();
   const text = widget.addText(quote);
-  const isLarge = family === 'large' || family === 'extraLarge';
+  const isLarge = isLargeFamily(family);
   text.font = Font.semiboldSystemFont(isLarge ? 28 : family === 'medium' ? 22 : 19);
   text.textColor = COLORS.text;
   text.lineLimit = family === 'small' ? 4 : family === 'medium' ? 3 : 6;
@@ -109,10 +115,21 @@ const addMain = (widget, family, quote) => {
   widget.addSpacer();
 
   if (isLarge) {
-    const footer = widget.addText('HITOKOTO · 此刻的一句话');
+    const footerRow = widget.addStack();
+    footerRow.centerAlignContent();
+    footerRow.addSpacer();
+    const footer = footerRow.addText('HITOKOTO · 此刻的一句话');
     footer.font = Font.mediumSystemFont(10);
     footer.textColor = COLORS.muted;
     footer.centerAlignText();
+    footerRow.addSpacer();
+    if (typeof widget.addRefreshButton === 'function') {
+      widget.addSpacer(10);
+      const actionRow = widget.addStack();
+      actionRow.addSpacer();
+      actionRow.addRefreshButton('换一句');
+      actionRow.addSpacer();
+    }
   }
 };
 
@@ -130,6 +147,7 @@ if (shouldShowWidgetMenu()) {
     title: '一言',
     version: __SCRIPT_VERSION__,
     updater,
+    scriptId: __SCRIPT_ID__,
     previewFamilies: PREVIEW_FAMILIES,
   });
   if (menu?.action === 'preview') {

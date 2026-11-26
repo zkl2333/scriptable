@@ -1,3 +1,5 @@
+import { applyTransparentBackground } from '../lib/widget-v18.js';
+
 const family = config.widgetFamily || 'medium';
 const isAccessory = family.startsWith('accessory');
 const foreground = Color.dynamic(new Color('#17202B'), new Color('#F7FAFF'));
@@ -49,6 +51,7 @@ if (!isAccessory) {
   detail.font = Font.mediumMonospacedSystemFont(10);
   detail.textColor = secondary;
   detail.centerAlignText();
+  applyTransparentBackground(widget, __SCRIPT_ID__);
 } else if (family === 'accessoryInline') {
   widget.addAccessoryWidgetBackground = true;
   widget.setPadding(0, 0, 0, 0);

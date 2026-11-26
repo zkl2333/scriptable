@@ -64,6 +64,7 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
 .build-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 17%, transparent); }
 .icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: transparent; cursor: pointer; font-size: 19px; line-height: 1; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
 .icon-button:hover { border-color: var(--app-ink); background: var(--panel-strong); }
+.icon-button.is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .icon-button.is-spinning { animation: spin 500ms ease; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -511,6 +512,80 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
   background: color-mix(in srgb, currentColor 11%, transparent);
 }
 .sp-widget.is-dark.is-accessory .sp-runtime-root.sp-accessory-background { background: rgba(255, 255, 255, 0.14); }
+.sp-widget > .sp-runtime-root.sp-transparent-background {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1)) !important;
+  backdrop-filter: blur(10px) saturate(1.25);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+.sp-widget.is-dark > .sp-runtime-root.sp-transparent-background {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.sp-progress-stack { position: relative; overflow: visible; }
+.sp-progress-stack > .sp-node:not(.sp-progress-layer) { position: relative; z-index: 1; }
+.sp-progress-layer { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.sp-progress-layer--circular { display: grid; place-items: center; }
+.sp-progress-svg { display: block; width: 100%; height: 100%; }
+.sp-progress-layer--linear { display: flex; align-items: center; overflow: hidden; border-radius: 999px; }
+.sp-progress-fill { display: block; height: 100%; border-radius: inherit; transition: width 220ms ease; }
+.sp-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 122, 255, 0.14);
+  color: #007aff;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: transform 120ms ease, filter 120ms ease, background-color 140ms ease;
+}
+.sp-widget.is-dark .sp-control { background: rgba(10, 132, 255, 0.24); color: #64b5ff; }
+.sp-control:hover { filter: brightness(0.95); }
+.sp-control:active { transform: scale(0.95); }
+.sp-refresh-glyph { font-size: 11px; line-height: 1; }
+.sp-toggle {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px 3px 9px;
+  background: rgba(120, 120, 128, 0.14);
+  color: inherit;
+  font-weight: 500;
+}
+.sp-widget.is-dark .sp-toggle { background: rgba(255, 255, 255, 0.12); color: #f2f2f7; }
+.sp-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(120, 120, 128, 0.34);
+  transition: background-color 160ms ease;
+}
+.sp-toggle-track i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: transform 160ms ease;
+}
+.sp-toggle.is-on .sp-toggle-track { background: #34c759; }
+.sp-toggle.is-on .sp-toggle-track i { transform: translateX(12px); }
+.sp-stack--action { cursor: pointer; transition: transform 120ms ease, opacity 120ms ease; }
+.sp-stack--action:hover { opacity: 0.88; }
+.sp-stack--action:active { transform: scale(0.96); }
 .sp-widget[data-family='accessoryInline'],
 .sp-widget[data-family='accessoryCircular'],
 .sp-widget[data-family='accessoryRectangular'] { border-radius: 0; box-shadow: none; }

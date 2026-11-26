@@ -6,6 +6,15 @@ import {
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
 import { drawBitmap } from '../lib/pixel.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  applyTransparentBackground,
+  attachStackAction,
+  getWidgetAction,
+  readWidgetState,
+  writeWidgetState,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -14,18 +23,7 @@ const updater = createUpdater({
 });
 await updater.autoUpdate();
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 
 const SPECIES = [
   {
@@ -167,6 +165,7 @@ const COLORS = {
   text: Color.dynamic(new Color('#292524'), new Color('#F5F5F4')),
   muted: Color.dynamic(new Color('#78716C'), new Color('#A8A29E')),
   track: Color.dynamic(new Color('#E7E5E4'), new Color('#44403C')),
+  chip: Color.dynamic(new Color('#FFFFFF', 0.72), new Color('#3B3532', 0.9)),
   ground: Color.dynamic(new Color('#000000', 0.08), new Color('#000000', 0.35)),
   heart: new Color('#F43F5E'),
   zzz: new Color('#78716C'),
@@ -177,24 +176,56 @@ const getDayOfYear = (date) => {
   return Math.floor((date - start) / 86400000);
 };
 
+const todayKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const resolveStoredPet = (now = new Date()) => {
+  const day = todayKey(now);
+  const stored = readWidgetState(__SCRIPT_ID__, {
+    day,
+    speciesIndex: null,
+    pets: 0,
+  });
+  const state = {
+    day,
+    speciesIndex: Number.isInteger(stored.speciesIndex) ? stored.speciesIndex % SPECIES.length : null,
+    pets: stored.day === day ? Math.max(0, Math.min(20, Number(stored.pets) || 0)) : 0,
+  };
+  const action = getWidgetAction();
+  if (action?.id === 'pet') {
+    state.pets = Math.min(20, state.pets + 1);
+    writeWidgetState(__SCRIPT_ID__, state);
+  } else if (action?.id === 'switch') {
+    const current = state.speciesIndex ?? (getDayOfYear(now) % SPECIES.length);
+    state.speciesIndex = (current + 1) % SPECIES.length;
+    writeWidgetState(__SCRIPT_ID__, state);
+  }
+  return state;
+};
+
 const getPetState = (now = new Date()) => {
+  const stored = resolveStoredPet(now);
   const startOfDay = new Date(now);
   startOfDay.setHours(0, 0, 0, 0);
   const progress = Math.min(1, Math.max(0, (now - startOfDay) / 86400000));
   const sleeping = now.getHours() >= 23 || now.getHours() < 7;
   const blinking = !sleeping && now.getMinutes() % 4 === 0;
-  const species = SPECIES[getDayOfYear(now) % SPECIES.length];
-  const mood = sleeping
-    ? '呼呼大睡中，请勿打扰'
-    : progress < 0.25
-      ? '刚睡醒，迷迷糊糊'
-      : progress < 0.6
-        ? '精力旺盛，四处蹦跶'
-        : progress < 0.85
-          ? '有点困，还在坚持'
-          : '进入省电睡眠模式';
-  const hearts = 2 + (getDayOfYear(now) % 3);
-  return { species, progress, sleeping, blinking, mood, hearts };
+  const speciesIdx = stored.speciesIndex ?? (getDayOfYear(now) % SPECIES.length);
+  const species = SPECIES[speciesIdx];
+  const mood = stored.pets > 0 && !sleeping
+    ? `被撸了 ${stored.pets} 次，超级开心`
+    : sleeping
+      ? '呼呼大睡中，请勿打扰'
+      : progress < 0.25
+        ? '刚睡醒，迷迷糊糊'
+        : progress < 0.6
+          ? '精力旺盛，四处蹦跶'
+          : progress < 0.85
+            ? '有点困，还在坚持'
+            : '进入省电睡眠模式';
+  const baseHearts = 2 + (getDayOfYear(now) % 3);
+  const hearts = Math.min(5, baseHearts + stored.pets);
+  return { species, progress, sleeping, blinking, mood, hearts, pets: stored.pets };
 };
 
 const getSpriteRows = (species, closedEyes) => {
@@ -263,6 +294,23 @@ const addTextLine = (parent, value, font, color, align = 'left') => {
   return text;
 };
 
+const addActionPill = (parent, symbolName, label, actionId, accentColor) => {
+  const pill = parent.addStack();
+  pill.centerAlignContent();
+  pill.setPadding(4, 8, 4, 8);
+  pill.cornerRadius = 10;
+  pill.backgroundColor = COLORS.chip;
+  const icon = pill.addImage(SFSymbol.named(symbolName).image);
+  icon.imageSize = new Size(10, 10);
+  icon.tintColor = accentColor;
+  pill.addSpacer(4);
+  const text = pill.addText(label);
+  text.font = Font.semiboldSystemFont(10);
+  text.textColor = COLORS.text;
+  attachStackAction(pill, label, actionId);
+  return pill;
+};
+
 const buildInfoColumn = (parent, state, compact = false) => {
   parent.layoutVertically();
   addTextLine(parent, 'PIXEL PET', Font.boldMonospacedSystemFont(9), state.species.accent);
@@ -272,6 +320,12 @@ const buildInfoColumn = (parent, state, compact = false) => {
   addTextLine(parent, state.mood, Font.systemFont(compact ? 10 : 11), COLORS.muted);
   parent.addSpacer(4);
   addTextLine(parent, `今日陪伴 ${Math.round(state.progress * 100)}%`, Font.mediumSystemFont(compact ? 10 : 11), COLORS.muted);
+  parent.addSpacer(8);
+  const actions = parent.addStack();
+  actions.centerAlignContent();
+  addActionPill(actions, 'heart.fill', '撸一下', 'pet', COLORS.heart);
+  actions.addSpacer(6);
+  addActionPill(actions, 'pawprint.fill', '换伙伴', 'switch', state.species.accent);
 };
 
 const addSceneImage = (parent, state, width, height, scale, centered = false) => {
@@ -291,6 +345,7 @@ const applyBackground = (widget) => {
   gradient.startPoint = new Point(0, 0);
   gradient.endPoint = new Point(0, 1);
   widget.backgroundGradient = gradient;
+  applyTransparentBackground(widget, __SCRIPT_ID__);
 };
 
 const addAccessory = (widget, family, state) => {
@@ -333,7 +388,9 @@ const createWidget = (family = config.widgetFamily || 'medium') => {
   } else if (family === 'small') {
     applyBackground(widget);
     widget.setPadding(10, 12, 6, 12);
-    addSceneImage(widget, state, 134, 96, 5);
+    const sceneBox = widget.addStack();
+    addSceneImage(sceneBox, state, 134, 96, 5);
+    attachStackAction(sceneBox, '撸一下宠物', 'pet');
     widget.addSpacer(6);
     addTextLine(widget, `${state.species.name} · ${state.species.kind}`, Font.boldSystemFont(13), COLORS.text);
     addTextLine(widget, state.mood, Font.systemFont(9), COLORS.muted).lineLimit = 1;
@@ -362,20 +419,34 @@ const createWidget = (family = config.widgetFamily || 'medium') => {
     addTextLine(column, state.mood, Font.systemFont(16), COLORS.muted);
     column.addSpacer(8);
     addTextLine(column, `今日陪伴 ${Math.round(state.progress * 100)}% · 每日轮换 · 深夜睡眠`, Font.systemFont(13), COLORS.muted);
+    column.addSpacer(14);
+    const actions = column.addStack();
+    actions.centerAlignContent();
+    addActionPill(actions, 'heart.fill', '撸一下', 'pet', COLORS.heart);
+    actions.addSpacer(8);
+    addActionPill(actions, 'pawprint.fill', '换伙伴', 'switch', state.species.accent);
     row.addSpacer();
   } else {
     applyBackground(widget);
-    widget.setPadding(14, 0, 10, 0);
+    const portrait = family === 'extraLargePortrait';
+    widget.setPadding(portrait ? 28 : 14, 0, portrait ? 24 : 10, 0);
     const column = widget.addStack();
     column.layoutVertically();
     column.centerAlignContent();
-    addSceneImage(column, state, 220, 196, 10, true);
-    column.addSpacer(8);
-    addTextLine(column, `${state.species.name} · ${state.species.kind}`, Font.boldSystemFont(18), COLORS.text, 'center');
+    addSceneImage(column, state, portrait ? 280 : 220, portrait ? 260 : 196, portrait ? 13 : 10, true);
+    column.addSpacer(portrait ? 16 : 8);
+    addTextLine(column, `${state.species.name} · ${state.species.kind}`, Font.boldSystemFont(portrait ? 24 : 18), COLORS.text, 'center');
     column.addSpacer(4);
-    addTextLine(column, state.mood, Font.systemFont(11), COLORS.muted, 'center');
+    addTextLine(column, state.mood, Font.systemFont(portrait ? 13 : 11), COLORS.muted, 'center');
+    column.addSpacer(portrait ? 18 : 10);
+    const actions = column.addStack();
+    actions.addSpacer();
+    addActionPill(actions, 'heart.fill', '撸一下', 'pet', COLORS.heart);
+    actions.addSpacer(8);
+    addActionPill(actions, 'pawprint.fill', '换伙伴', 'switch', state.species.accent);
+    actions.addSpacer();
     widget.addSpacer();
-    addTextLine(widget, `每日轮换 · 今日是${state.species.kind} · 深夜进入睡眠`, Font.systemFont(9), COLORS.muted, 'center');
+    addTextLine(widget, `轻点互动 · 今日是${state.species.kind} · 深夜进入睡眠`, Font.systemFont(9), COLORS.muted, 'center');
   }
   widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   return attachMenuURL(widget);
@@ -386,6 +457,7 @@ if (shouldShowWidgetMenu()) {
     title: '像素宠物',
     version: __SCRIPT_VERSION__,
     updater,
+    scriptId: __SCRIPT_ID__,
     previewFamilies: PREVIEW_FAMILIES,
   });
   if (menu?.action === 'preview') {

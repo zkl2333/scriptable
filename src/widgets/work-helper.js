@@ -5,6 +5,14 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addLinearProgress,
+  applyTransparentBackground,
+  attachStackAction,
+  isLargeFamily,
+} from '../lib/widget-v18.js';
 
 const updater = createUpdater({
   scriptId: __SCRIPT_ID__,
@@ -221,21 +229,10 @@ const METRICS = {
   medium: { hero: 32, barWidth: 290, showHoliday: true },
   large: { hero: 36, barWidth: 290, showHoliday: true },
   extraLarge: { hero: 36, barWidth: 290, showHoliday: true },
+  extraLargePortrait: { hero: 36, barWidth: 290, showHoliday: true },
 };
 
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 
 const ACCESSORY_FOREGROUND = Color.dynamic(
   new Color('#111111'),
@@ -496,6 +493,7 @@ const addHeader = (widget, phase) => {
   const pillText = pill.addText(info.label);
   pillText.font = Font.semiboldSystemFont(11);
   pillText.textColor = COLORS.work;
+  attachStackAction(pill, '刷新下班助手', 'refresh');
 };
 
 const addHero = (widget, countdown, metrics) => {
@@ -522,18 +520,26 @@ const addHero = (widget, countdown, metrics) => {
 const addProgress = (widget, metrics) => {
   const pct = getWorkProgress();
 
-  const bar = widget.addStack();
-  bar.size = new Size(metrics.barWidth, 8);
-  bar.cornerRadius = 4;
-  bar.backgroundColor = COLORS.track;
-  const fill = bar.addStack();
-  const fillWidth = Math.round(metrics.barWidth * pct);
-  if (fillWidth > 0) {
-    fill.size = new Size(fillWidth, 8);
-    fill.cornerRadius = 4;
-    fill.backgroundColor = COLORS.work;
-  }
-  bar.addSpacer();
+  addLinearProgress(widget, pct * 100, {
+    width: metrics.barWidth,
+    thickness: 8,
+    progressColor: COLORS.work,
+    trackColor: COLORS.track,
+    fallback: () => {
+      const bar = widget.addStack();
+      bar.size = new Size(metrics.barWidth, 8);
+      bar.cornerRadius = 4;
+      bar.backgroundColor = COLORS.track;
+      const fill = bar.addStack();
+      const fillWidth = Math.round(metrics.barWidth * pct);
+      if (fillWidth > 0) {
+        fill.size = new Size(fillWidth, 8);
+        fill.cornerRadius = 4;
+        fill.backgroundColor = COLORS.work;
+      }
+      bar.addSpacer();
+    },
+  });
 
   widget.addSpacer(6);
   const label = widget.addText(`今日工作进度 ${Math.round(pct * 100)}%`);
@@ -604,6 +610,7 @@ const createWidget = async (family = config.widgetFamily || 'medium') => {
     gradient.startPoint = new Point(0, 0);
     gradient.endPoint = new Point(1, 1);
     widget.backgroundGradient = gradient;
+    applyTransparentBackground(widget, __SCRIPT_ID__);
     widget.setPadding(14, 16, 14, 16);
   }
 
@@ -647,7 +654,7 @@ const createWidget = async (family = config.widgetFamily || 'medium') => {
       }
     }
 
-    if (widgetFamily === 'large' || widgetFamily === 'extraLarge') {
+    if (isLargeFamily(widgetFamily)) {
       widget.addSpacer(8);
       const footer = widget.addText(
         `工作时间 ${pad2(WORK_HOURS.start.hour)}:${pad2(WORK_HOURS.start.minute)} – ${pad2(WORK_HOURS.end.hour)}:${pad2(WORK_HOURS.end.minute)}`
@@ -683,6 +690,7 @@ if (shouldShowWidgetMenu()) {
     title: '下班助手',
     version: __SCRIPT_VERSION__,
     updater,
+    scriptId: __SCRIPT_ID__,
     previewFamilies: PREVIEW_FAMILIES,
   });
   if (menu?.action === 'preview') {

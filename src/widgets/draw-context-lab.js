@@ -1,3 +1,5 @@
+import { applyTransparentBackground, isLargeFamily } from '../lib/widget-v18.js';
+
 const family = config.widgetFamily || 'medium';
 const isAccessory = family.startsWith('accessory');
 const ink = Color.dynamic(new Color('#1B2430'), new Color('#F4F7FB'));
@@ -45,16 +47,19 @@ const makeCanvas = (width, height) => {
   context.drawTextInRect('DRAW OPS', new Rect(width - 76, 16, 64, 13));
   context.setTextAlignedRight();
   context.setFont(Font.regularMonospacedSystemFont(8));
+  context.setFontSize(8);
   context.drawText('FILL · STROKE · PATH', new Point(width - 10, height - 14));
 
   const symbol = SFSymbol.named('arrow.up').image;
   context.drawImageAtPoint(symbol, new Point(16, height - 35));
+  context.drawImageInRect(symbol, new Rect(40, height - 35, 16, 16), 45);
   return context.getImage();
 };
 
 const widget = new ListWidget();
 widget.setPadding(isAccessory ? 0 : 14, isAccessory ? 0 : 16, isAccessory ? 0 : 14, isAccessory ? 0 : 16);
 widget.backgroundColor = Color.dynamic(new Color('#F7FAFF'), new Color('#171D27'));
+applyTransparentBackground(widget, __SCRIPT_ID__, { isAccessory });
 
 if (isAccessory) {
   widget.addAccessoryWidgetBackground = true;
@@ -79,7 +84,13 @@ if (isAccessory) {
 
   widget.addSpacer(8);
   const width = family === 'small' ? 126 : 306;
-  const height = family === 'small' ? 86 : family === 'large' ? 158 : 94;
+  const height = family === 'small'
+    ? 86
+    : family === 'extraLargePortrait'
+      ? 420
+      : isLargeFamily(family)
+        ? 158
+        : 94;
   const image = widget.addImage(makeCanvas(width, height));
   image.imageSize = new Size(width, height);
   image.cornerRadius = 12;
@@ -87,7 +98,7 @@ if (isAccessory) {
   image.borderColor = new Color('#2F6BFF', 0.28);
   image.applyFillingContentMode();
   widget.addSpacer(7);
-  const note = widget.addText('fill / stroke / path / text / symbol');
+  const note = widget.addText('fill / stroke / path / text / rotate');
   note.font = Font.regularMonospacedSystemFont(9);
   note.textColor = muted;
   note.lineLimit = 1;

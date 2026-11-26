@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: calendar-day;
 // @script-id today-dashboard
-// @version 1.0.0
+// @version 1.1.0
 
 // src/lib/updater.js
 var DEFAULT_CHECK_INTERVAL = 24 * 3600;
@@ -88,6 +88,99 @@ var createUpdater = ({
   return { applyUpdateIfAny, autoUpdate, checkForUpdate: checkForUpdate2 };
 };
 
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var setTransparentEnabled = (scriptId, enabled) => {
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  const key = transparentKey(scriptId);
+  if (enabled) {
+    Keychain.set(key, "1");
+    return true;
+  }
+  if (Keychain.contains(key)) Keychain.remove(key);
+  return false;
+};
+var toggleTransparentBackground = (scriptId) => {
+  const next = !isTransparentEnabled(scriptId);
+  setTransparentEnabled(scriptId, next);
+  return next;
+};
+var applyTransparentBackground = (widget, scriptId, { isAccessory = false, force = null } = {}) => {
+  if (!widget || isAccessory) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget.backgroundStyle = "transparent";
+  widget.backgroundColor = null;
+  widget.backgroundGradient = null;
+  widget.backgroundImage = null;
+  return true;
+};
+var addRefreshAction = (parent, {
+  title = "刷新组件",
+  id = "refresh",
+  text = "",
+  font = null,
+  textColor = null,
+  iconColor = null,
+  iconSize = 10,
+  backgroundColor = null,
+  cornerRadius = 0,
+  padding = null
+} = {}) => {
+  const stack = parent.addStack();
+  stack.centerAlignContent();
+  if (backgroundColor) stack.backgroundColor = backgroundColor;
+  if (cornerRadius) stack.cornerRadius = cornerRadius;
+  if (padding) stack.setPadding(padding[0], padding[1], padding[2], padding[3]);
+  if (text) {
+    const label = stack.addText(text);
+    if (font) label.font = font;
+    if (textColor) label.textColor = textColor;
+    label.lineLimit = 1;
+    label.minimumScaleFactor = 0.72;
+  }
+  if (typeof stack.setAction === "function") {
+    if (text) stack.addSpacer(4);
+    const symbol = SFSymbol.named("arrow.clockwise");
+    if (symbol?.image) {
+      const icon = stack.addImage(symbol.image);
+      icon.imageSize = new Size(iconSize, iconSize);
+      if (iconColor || textColor) icon.tintColor = iconColor || textColor;
+    }
+    stack.setAction(title, { id });
+  }
+  return stack;
+};
+
 // src/lib/widget-menu.js
 var showMessage = async (title, message) => {
   const alert = new Alert();
@@ -135,6 +228,11 @@ var PREVIEW_DEFINITIONS = {
     method: "presentExtraLarge",
     group: "home"
   },
+  extraLargePortrait: {
+    label: "竖屏超大 Extra Large Portrait",
+    method: "presentExtraLargePortrait",
+    group: "home"
+  },
   accessoryInline: {
     label: "锁屏单行 Inline",
     method: "presentAccessoryInline",
@@ -163,8 +261,13 @@ var normalizePreviewFamilies = (families) => {
   return uniqueFamilies;
 };
 var isPreviewAvailable = (family) => {
-  if (family !== "extraLarge") return true;
-  return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  if (family === "extraLarge") {
+    return typeof Device !== "undefined" && typeof Device.isPad === "function" && Device.isPad();
+  }
+  if (family === "extraLargePortrait") {
+    return typeof ListWidget !== "undefined" && typeof ListWidget.prototype?.presentExtraLargePortrait === "function";
+  }
+  return true;
 };
 var presentWidget = async (widget, family = "medium") => {
   const { method } = getPreviewDefinition(family);
@@ -234,13 +337,19 @@ var runWidgetMenu = async ({
   version,
   updater: updater2,
   actions = [],
-  previewFamilies = DEFAULT_PREVIEW_FAMILIES
+  previewFamilies = DEFAULT_PREVIEW_FAMILIES,
+  scriptId = null
 }) => {
+  const hasTransparentToggle = Boolean(scriptId);
+  const transparentOn = hasTransparentToggle ? isTransparentEnabled(scriptId) : false;
   const alert = new Alert();
   alert.title = title;
   alert.message = message || `当前版本 v${version}`;
   alert.addAction("预览组件");
   actions.forEach((action) => alert.addAction(action.title));
+  if (hasTransparentToggle) {
+    alert.addAction(`透明背景：${transparentOn ? "已开启" : "未开启"}`);
+  }
   alert.addAction("检查更新");
   alert.addCancelAction("取消操作");
   const index = await alert.presentSheet();
@@ -251,6 +360,14 @@ var runWidgetMenu = async ({
   }
   const actionIndex = index - 1;
   if (actionIndex < actions.length) return { action: actions[actionIndex].id };
+  if (hasTransparentToggle && actionIndex === actions.length) {
+    const enabled = toggleTransparentBackground(scriptId);
+    await showMessage(
+      enabled ? "已开启透明背景" : "已关闭透明背景",
+      enabled ? "需 Scriptable 1.8 与 iOS/iPadOS 27.2+；返回主屏幕刷新后生效。" : "已恢复组件默认背景样式；返回主屏幕刷新后生效。"
+    );
+    return null;
+  }
   await checkForUpdate({ updater: updater2, version });
   return null;
 };
@@ -258,16 +375,11 @@ var runWidgetMenu = async ({
 // src/widgets/today-dashboard.js
 var updater = createUpdater({
   scriptId: "today-dashboard",
-  version: "1.0.0",
+  version: "1.1.0",
   updateURL: "https://raw.githubusercontent.com/zkl2333/scriptable/main/dist/today-dashboard.js"
 });
 await updater.autoUpdate();
-var ACCESSORY_FAMILIES = [
-  "accessoryInline",
-  "accessoryCircular",
-  "accessoryRectangular"
-];
-var PREVIEW_FAMILIES = ["small", "medium", "large", "extraLarge", ...ACCESSORY_FAMILIES];
+var PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 var COLORS = {
   text: Color.dynamic(new Color("#1D252C"), new Color("#F3F5F7")),
   muted: Color.dynamic(new Color("#6E7882"), new Color("#98A2AD")),
@@ -386,6 +498,7 @@ var setBackground = (widget) => {
   gradient.startPoint = new Point(0, 0);
   gradient.endPoint = new Point(1, 1);
   widget.backgroundGradient = gradient;
+  applyTransparentBackground(widget, "today-dashboard");
 };
 var addHeader = (widget, now, large = false) => {
   const row = widget.addStack();
@@ -395,9 +508,11 @@ var addHeader = (widget, now, large = false) => {
   row.addSpacer(7);
   addText(row, `周${formatWeekday(now)}`, Font.mediumSystemFont(11), COLORS.muted);
   row.addSpacer();
-  const icon = row.addImage(SFSymbol.named("sun.max.fill").image);
-  icon.tintColor = COLORS.reminder;
-  icon.imageSize = new Size(15, 15);
+  addRefreshAction(row, {
+    title: "刷新今日面板",
+    iconColor: COLORS.reminder,
+    iconSize: 13
+  });
 };
 var addNextEventCard = (widget, dashboard, compact = false) => {
   const card = widget.addStack();
@@ -428,7 +543,7 @@ var addSmall = (widget, dashboard) => {
   if (dashboard.reminders.items[0]) addReminderRow(widget, dashboard.reminders.items[0], dashboard.now, true);
   else addEmpty(widget, dashboard.reminders.available ? "今天没有截止待办" : "未获提醒事项权限", true);
 };
-var addColumn = (parent, dashboard, type) => {
+var addColumn = (parent, dashboard, type, maxItems = 3) => {
   const isEvents = type === "events";
   const items = isEvents ? dashboard.events.items : dashboard.reminders.items;
   const available = isEvents ? dashboard.events.available : dashboard.reminders.available;
@@ -440,10 +555,11 @@ var addColumn = (parent, dashboard, type) => {
     addEmpty(column, available ? isEvents ? "今天没有安排" : "今天没有截止待办" : `未获${isEvents ? "日历" : "提醒事项"}权限`);
     return;
   }
-  for (const [index, item] of items.slice(0, 3).entries()) {
+  const visible = items.slice(0, maxItems);
+  for (const [index, item] of visible.entries()) {
     if (isEvents) addEventRow(column, item, dashboard.now);
     else addReminderRow(column, item, dashboard.now);
-    if (index < Math.min(items.length, 3) - 1) column.addSpacer(6);
+    if (index < visible.length - 1) column.addSpacer(6);
   }
 };
 var addMedium = (widget, dashboard) => {
@@ -457,16 +573,24 @@ var addMedium = (widget, dashboard) => {
   body.addSpacer(16);
   addColumn(body, dashboard, "reminders");
 };
-var addLarge = (widget, dashboard, extraLarge = false) => {
+var addLarge = (widget, dashboard, family = "large") => {
+  const extraLarge = family === "extraLarge";
+  const portrait = family === "extraLargePortrait";
   widget.setPadding(18, 19, 16, 19);
   addHeader(widget, dashboard.now, true);
   widget.addSpacer(14);
   addNextEventCard(widget, dashboard);
   widget.addSpacer(15);
-  const body = widget.addStack();
-  addColumn(body, dashboard, "events");
-  body.addSpacer(extraLarge ? 28 : 20);
-  addColumn(body, dashboard, "reminders");
+  if (portrait) {
+    addColumn(widget, dashboard, "events", 6);
+    widget.addSpacer(20);
+    addColumn(widget, dashboard, "reminders", 6);
+  } else {
+    const body = widget.addStack();
+    addColumn(body, dashboard, "events", 3);
+    body.addSpacer(extraLarge ? 28 : 20);
+    addColumn(body, dashboard, "reminders", 3);
+  }
   widget.addSpacer();
   const footer = dashboard.reminders.undated > 0 ? `另有 ${dashboard.reminders.undated} 项无截止日期待办` : "日历和提醒事项均在本机读取";
   addText(widget, footer, Font.systemFont(10), COLORS.muted, { lineLimit: 1 });
@@ -502,7 +626,7 @@ var createWidget = async (family = config.widgetFamily || "medium") => {
     setBackground(widget);
     if (family === "small") addSmall(widget, dashboard);
     else if (family === "medium") addMedium(widget, dashboard);
-    else addLarge(widget, dashboard, family === "extraLarge");
+    else addLarge(widget, dashboard, family);
   }
   widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1e3);
   return attachMenuURL(widget);
@@ -511,8 +635,9 @@ if (shouldShowWidgetMenu()) {
   const menu = await runWidgetMenu({
     title: "今日面板",
     message: "聚合今日日程与到期提醒。首次运行会请求系统权限。",
-    version: "1.0.0",
+    version: "1.1.0",
     updater,
+    scriptId: "today-dashboard",
     previewFamilies: PREVIEW_FAMILIES
   });
   if (menu?.action === "preview") await presentWidgetPreviews(createWidget, menu.families);

@@ -5,6 +5,13 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addRefreshAction,
+  applyTransparentBackground,
+  isLargeFamily,
+} from '../lib/widget-v18.js';
 
 // ==========================================
 // XLYRA · 用户组件
@@ -17,7 +24,7 @@ var CONFIG = {
   baseURL: "",
   timeoutMs: 8e3,
   autoUpdate: true,
-  version: "1.1.1"
+  version: __SCRIPT_VERSION__
 };
 var KC_URL = "xlyra-user.baseURL";
 var KC_KEY = "xlyra-user.apiKey";
@@ -44,18 +51,7 @@ var C = {
   led: new Color("#d97706"),
   ledDim: new Color("#d97706", 0.14)
 };
-var ACCESSORY_FAMILIES = [
-  "accessoryInline",
-  "accessoryCircular",
-  "accessoryRectangular"
-];
-var PREVIEW_FAMILIES = [
-  "small",
-  "medium",
-  "large",
-  "extraLarge",
-  ...ACCESSORY_FAMILIES
-];
+var PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 var ACCESSORY_COLOR = dyn(new Color("#111111"), new Color("#FFFFFF"));
 var ACCESSORY_SECONDARY = dyn(
   new Color("#111111", 0.62),
@@ -126,7 +122,13 @@ function addLed(parent, text, options, maxWidth) {
   );
 }
 function dotGrid(family) {
-  const [width, height] = family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
+  const [width, height] = family === "small"
+    ? [180, 180]
+    : family === "medium"
+      ? [380, 180]
+      : family === "extraLargePortrait"
+        ? [380, 740]
+        : [380, 400];
   const ctx = new DrawContext();
   ctx.size = new Size(width, height);
   ctx.opaque = false;
@@ -150,9 +152,14 @@ function brandRow(widget, time) {
   brand.font = MONO_B;
   brand.textColor = C.fg;
   row.addSpacer();
-  const clock = row.addText(time);
-  clock.font = MONO_SM;
-  clock.textColor = C.dim;
+  addRefreshAction(row, {
+    title: '刷新 XLYRA 用户数据',
+    text: time,
+    font: MONO_SM,
+    textColor: C.dim,
+    iconColor: C.amber,
+    iconSize: 9,
+  });
 }
 function dash(widget) {
   const text = widget.addText("-".repeat(30));
@@ -686,6 +693,7 @@ async function createWidget(family = config.widgetFamily || "small") {
     );
     widget.backgroundColor = C.bg;
     widget.backgroundImage = dotGrid(family);
+    applyTransparentBackground(widget, __SCRIPT_ID__);
   }
   const now = /* @__PURE__ */ new Date();
   const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -699,7 +707,7 @@ async function createWidget(family = config.widgetFamily || "small") {
     renderAccessory(widget, family, data);
   } else if (family === "medium") {
     renderMedium(widget, data, time);
-  } else if (family === "large" || family === "extraLarge") {
+  } else if (isLargeFamily(family)) {
     renderLarge(widget, data, time);
   } else {
     renderSmall(widget, data, time);
@@ -720,6 +728,7 @@ if (shouldShowWidgetMenu()) {
         message: "下游密钥用量与额度",
         version: CONFIG.version,
         updater,
+        scriptId: __SCRIPT_ID__,
         previewFamilies: PREVIEW_FAMILIES,
         actions: [{ id: "setup", title: "重新配置密钥" }]
       });

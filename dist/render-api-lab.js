@@ -2,7 +2,50 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: paint-brush;
 // @script-id render-api-lab
-// @version 1.0.0
+// @version 1.1.0
+
+// src/lib/widget-v18.js
+var STYLE_KEY_PREFIX = "zkl2333.widgetStyle";
+var ACCESSORY_FAMILIES = [
+  "accessoryInline",
+  "accessoryCircular",
+  "accessoryRectangular"
+];
+var ALL_PREVIEW_FAMILIES = [
+  "small",
+  "medium",
+  "large",
+  "extraLarge",
+  "extraLargePortrait",
+  ...ACCESSORY_FAMILIES
+];
+var isLargeFamily = (family2) => family2 === "large" || family2 === "extraLarge" || family2 === "extraLargePortrait";
+var transparentKey = (scriptId) => `${STYLE_KEY_PREFIX}.${scriptId}.transparent`;
+var parameterRequestsTransparent = () => {
+  if (typeof args === "undefined" || !args?.widgetParameter) return false;
+  const raw = String(args.widgetParameter).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.split(/[\s,;|]+/).some((token) => token === "transparent" || token === "透明" || token === "bg=transparent");
+};
+var isTransparentEnabled = (scriptId) => {
+  if (parameterRequestsTransparent()) return true;
+  if (!scriptId || typeof Keychain === "undefined") return false;
+  try {
+    return Keychain.contains(transparentKey(scriptId)) && Keychain.get(transparentKey(scriptId)) === "1";
+  } catch {
+    return false;
+  }
+};
+var applyTransparentBackground = (widget2, scriptId, { isAccessory: isAccessory2 = false, force = null } = {}) => {
+  if (!widget2 || isAccessory2) return false;
+  const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
+  if (!enabled) return false;
+  widget2.backgroundStyle = "transparent";
+  widget2.backgroundColor = null;
+  widget2.backgroundGradient = null;
+  widget2.backgroundImage = null;
+  return true;
+};
 
 // src/widgets/render-api-lab.js
 var family = config.widgetFamily || "medium";
@@ -128,13 +171,14 @@ var addHome = (widget2) => {
     offset.textColor = palette.muted;
     offset.applyOffsetStyle();
   }
-  if (family === "large" || family === "extraLarge") {
+  if (isLargeFamily(family)) {
     widget2.addSpacer();
     const foot = widget2.addText("Text · Date · Image · Stack · Gradient");
     foot.font = Font.regularMonospacedSystemFont(9);
     foot.textColor = palette.muted;
     foot.centerAlignText();
   }
+  applyTransparentBackground(widget2, "render-api-lab");
 };
 var widget = new ListWidget();
 widget.url = URLScheme.forRunningScript();

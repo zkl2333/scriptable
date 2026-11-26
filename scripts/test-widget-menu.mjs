@@ -204,4 +204,57 @@ assert.deepEqual(updateCalls, [
 ]);
 assert.equal(alerts.at(-1).title, '更新完成');
 
+// 测试 Scriptable 1.8 extraLargePortrait 与透明背景开关
+const keychainStore = new Map();
+globalThis.Keychain = {
+  contains: (key) => keychainStore.has(key),
+  get: (key) => keychainStore.get(key),
+  set: (key, value) => keychainStore.set(key, String(value)),
+  remove: (key) => keychainStore.delete(key),
+};
+globalThis.ListWidget = class {
+  async presentExtraLargePortrait() {}
+};
+
+previewWidget.presentExtraLargePortrait = async () => previewCalls.push('extraLargePortrait');
+await presentWidget(previewWidget, 'extraLargePortrait');
+assert.equal(previewCalls.at(-1), 'extraLargePortrait');
+
+sheetSelections.push(0, 3);
+assert.deepEqual(
+  await runWidgetMenu({
+    title: '测试',
+    version: '1.0.0',
+    updater,
+    previewFamilies: ['small', 'medium', 'large', 'extraLargePortrait'],
+  }),
+  { action: 'preview', families: ['extraLargePortrait'] }
+);
+assert.equal(alerts.at(-1).actions.includes('竖屏超大 Extra Large Portrait'), true);
+
+sheetSelections.push(1);
+assert.equal(
+  await runWidgetMenu({
+    title: '测试',
+    version: '1.0.0',
+    updater,
+    scriptId: 'demo-widget',
+  }),
+  null
+);
+assert.equal(alerts.at(-2).actions.includes('透明背景：未开启'), true);
+assert.equal(alerts.at(-1).title, '已开启透明背景');
+assert.equal(keychainStore.get('zkl2333.widgetStyle.demo-widget.transparent'), '1');
+
+sheetSelections.push(1);
+await runWidgetMenu({
+  title: '测试',
+  version: '1.0.0',
+  updater,
+  scriptId: 'demo-widget',
+});
+assert.equal(alerts.at(-2).actions.includes('透明背景：已开启'), true);
+assert.equal(alerts.at(-1).title, '已关闭透明背景');
+assert.equal(keychainStore.has('zkl2333.widgetStyle.demo-widget.transparent'), false);
+
 console.log('Widget menu test passed.');

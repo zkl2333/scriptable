@@ -14,10 +14,20 @@
   const widgetCountLabel = document.querySelector('#widget-count');
   const buildWidgetCountLabel = document.querySelector('#build-widget-count');
   const themeButton = document.querySelector('#theme-button');
+  const transparentButton = document.querySelector('#transparent-button');
   const refreshButton = document.querySelector('#refresh-button');
   const viewSwitch = document.querySelector('.view-switch');
   let renderSequence = 0;
   let stopDateTicker = () => {};
+  let transparentPreview = false;
+  const widgetStorages = new Map();
+
+  const getWidgetStorage = (widgetId) => {
+    if (!widgetStorages.has(widgetId)) {
+      widgetStorages.set(widgetId, { files: new Map(), keychain: new Map() });
+    }
+    return widgetStorages.get(widgetId);
+  };
 
   widgetCountLabel.textContent = String(widgetCount).padStart(2, '0');
   buildWidgetCountLabel.textContent = `${widgetCount} WIDGETS`;
@@ -83,10 +93,19 @@
       .join('');
   };
 
+  const renderWidgetHTML = (widgetId, state, widgetAction = null) =>
+    engine.render(widgetId, {
+      family: state.family,
+      appearance: state.appearance,
+      widgetAction,
+      widgetParameter: transparentPreview ? 'transparent' : '',
+      storage: getWidgetStorage(widgetId),
+    });
+
   const previewStage = async (widget, state, focused = false) => `
     <div class="preview-stage${focused ? ' preview-stage--focus' : ''}" data-family="${state.family}">
       <div class="preview-scale-shell">
-        ${await engine.render(widget.id, { family: state.family, appearance: state.appearance })}
+        ${await renderWidgetHTML(widget.id, state)}
       </div>
     </div>`;
 
@@ -225,18 +244,68 @@
     if (button) engine.update({ mode: button.dataset.mode });
   });
 
+  const triggerWidgetInteraction = async (control) => {
+    const widgetArticle = control.closest('.sp-widget[data-widget-id]');
+    if (!widgetArticle) return;
+    const widgetId = widgetArticle.dataset.widgetId;
+    const state = engine.getState();
+    const isRefresh = control.hasAttribute('data-widget-refresh');
+    let widgetAction = null;
+    if (!isRefresh) {
+      const id = control.getAttribute('data-widget-action-id');
+      if (!id) return;
+      widgetAction = control.hasAttribute('data-widget-toggle-next')
+        ? { id, isOn: control.getAttribute('data-widget-toggle-next') === 'true' }
+        : { id };
+    }
+    const shell = widgetArticle.parentElement;
+    if (!shell) return;
+    try {
+      const html = await renderWidgetHTML(widgetId, state, widgetAction);
+      shell.innerHTML = html;
+      stopDateTicker();
+      stopDateTicker = runtime?.mountDateTicker?.(previewViewport) || (() => {});
+      requestAnimationFrame(fitPreviews);
+    } catch (error) {
+      console.error(`执行组件 ${widgetId} 交互失败`, error);
+    }
+  };
+
   previewViewport.addEventListener('click', (event) => {
+    const control = event.target.closest('[data-widget-refresh], [data-widget-action-id]');
+    if (control) {
+      event.preventDefault();
+      event.stopPropagation();
+      void triggerWidgetInteraction(control);
+      return;
+    }
     const entry = event.target.closest('.preview-entry');
     if (entry) openWidget(entry.dataset.widgetId);
   });
 
   previewViewport.addEventListener('keydown', (event) => {
+    const control = event.target.closest('[data-widget-refresh], [data-widget-action-id]');
+    if (control && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      event.stopPropagation();
+      void triggerWidgetInteraction(control);
+      return;
+    }
     const entry = event.target.closest('.preview-entry');
     if (entry && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       openWidget(entry.dataset.widgetId);
     }
   });
+
+  if (transparentButton) {
+    transparentButton.addEventListener('click', () => {
+      transparentPreview = !transparentPreview;
+      transparentButton.classList.toggle('is-active', transparentPreview);
+      transparentButton.setAttribute('aria-pressed', String(transparentPreview));
+      void render();
+    });
+  }
 
   themeButton.addEventListener('click', () => {
     const appearance = engine.getState().appearance === 'light' ? 'dark' : 'light';

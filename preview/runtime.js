@@ -15,8 +15,11 @@
   const textMeasurer = measure.createMeasurer();
   const layoutEngine = layout.createLayoutEngine({
     measure: textMeasurer.measure,
+    wrapText: textMeasurer.wrapText,
+    measureTextBlock: textMeasurer.measureTextBlock,
     defaultFontSize: measure.DEFAULT_FONT_SIZE,
   });
+  let tintFilterSequence = 0;
 
   const escapeHTML = (value) =>
     String(value ?? '')
@@ -127,10 +130,8 @@
       ` preserveAspectRatio="xMidYMid meet">${body}</svg>`;
   };
 
-  const renderDrawImage = (image, extraClass = '', pick = colorToCSS) => {
-    const width = Math.max(1, Number(image.size?.width) || 1);
-    const height = Math.max(1, Number(image.size?.height) || 1);
-    const body = image.ops.map((operation) => {
+  const renderDrawOps = (image, pick = colorToCSS) =>
+    (image.ops || []).map((operation) => {
       const fill = escapeAttribute(pick(operation.color) || 'transparent');
       const rect = operation.rect || {};
       if (operation.type === 'fillRect') {
@@ -170,19 +171,47 @@
             ? rect.x + rect.width
             : rect.x;
         const anchor = operation.alignment === 'center' ? 'middle' : operation.alignment === 'right' ? 'end' : 'start';
-        const y = rect.y + Math.min(rect.height, font.size) * 0.86;
-        return `<text x="${x}" y="${y}" fill="${fill}" font-size="${font.size}"` +
+        const wrapped = rect.width > 0
+          ? textMeasurer.wrapText(operation.text, font, rect.width)
+          : { lines: [String(operation.text ?? '')] };
+        const lh = textMeasurer.lineHeight(font);
+        const firstY = rect.y + Math.min(rect.height || font.size, font.size) * 0.86;
+        return wrapped.lines.map((line, index) =>
+          `<text x="${x}" y="${firstY + index * lh}" fill="${fill}" font-size="${font.size}"` +
           ` font-family="${font.family === 'monospace' ? 'monospace' : 'sans-serif'}"` +
-          ` font-weight="${font.weight}" text-anchor="${anchor}">${escapeHTML(operation.text)}</text>`;
+          ` font-weight="${font.weight}" text-anchor="${anchor}">${escapeHTML(line)}</text>`
+        ).join('');
       }
-      if (operation.type === 'image' && operation.image?.kind === 'symbol') {
-        return renderSymbolSVG(operation.image, rect, fill, operation.image.font);
-      }
-      if (operation.type === 'image' && operation.image?.__kind === 'symbol') {
-        return renderSymbolSVG(operation.image, rect, fill, operation.image.font);
+      if (operation.type === 'image') {
+        let inner = '';
+        if (operation.image?.kind === 'symbol' || operation.image?.__kind === 'symbol') {
+          inner = renderSymbolSVG(operation.image, rect, fill, operation.image.font);
+        } else if (operation.image?.kind === 'draw') {
+          const childWidth = Math.max(1, Number(operation.image.size?.width) || 1);
+          const childHeight = Math.max(1, Number(operation.image.size?.height) || 1);
+          inner = `<svg x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" viewBox="0 0 ${childWidth} ${childHeight}" preserveAspectRatio="none">${renderDrawOps(operation.image, pick)}</svg>`;
+        }
+        if (!inner) return '';
+        const rotation = Number(operation.rotation) || 0;
+        if (rotation) {
+          const cx = rect.x + rect.width / 2;
+          const cy = rect.y + rect.height / 2;
+          return `<g transform="rotate(${rotation} ${cx} ${cy})">${inner}</g>`;
+        }
+        return inner;
       }
       return '';
     }).join('');
+
+  const renderDrawImage = (image, extraClass = '', pick = colorToCSS, tintColor = null) => {
+    const width = Math.max(1, Number(image.size?.width) || 1);
+    const height = Math.max(1, Number(image.size?.height) || 1);
+    const body = renderDrawOps(image, pick);
+    if (tintColor) {
+      const filterId = `sp_tint_${++tintFilterSequence}`;
+      const tint = escapeAttribute(tintColor);
+      return `<svg class="sp-drawn-image ${extraClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true" data-tinted="true"><defs><filter id="${filterId}" color-interpolation-filters="sRGB"><feFlood flood-color="${tint}" result="flood"/><feComposite in="flood" in2="SourceAlpha" operator="in"/></filter></defs><g filter="url(#${filterId})">${body}</g></svg>`;
+    }
     return `<svg class="sp-drawn-image ${extraClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${body}</svg>`;
   };
 
@@ -205,7 +234,11 @@
     const extent = layout.imageExtent(node);
     const width = extent.width;
     const height = extent.height;
-    const color = pick(node.tintColor) || 'currentColor';
+    const resolvedTint = pick(node.tintColor);
+    const color = resolvedTint || 'currentColor';
+    const radius = node.containerRelativeShape
+      ? (Number.isFinite(node._effectiveCornerRadius) ? node._effectiveCornerRadius : null)
+      : (node.cornerRadius || null);
     const style = styleText({
       width: `${width}px`,
       height: `${height}px`,
@@ -213,7 +246,7 @@
       flexShrink: 0,
       color,
       opacity: node.imageOpacity === 1 ? null : node.imageOpacity,
-      borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
+      borderRadius: radius ? `${radius}px` : null,
       border: node.borderWidth ? `${node.borderWidth}px solid ${pick(node.borderColor) || '#000000'}` : null,
       alignSelf: node.imageAlignment === 'center' ? 'center' : node.imageAlignment === 'right' ? 'flex-end' : null,
     });
@@ -224,7 +257,7 @@
         `class="sp-symbol-svg" role="img" aria-label="${escapeAttribute(image.name)}"`
       );
     } else if (image.kind === 'draw') {
-      content = renderDrawImage(image, '', pick);
+      content = renderDrawImage(image, '', pick, resolvedTint);
     } else if (image.kind === 'remote') {
       content = `<img src="${escapeAttribute(image.url)}" alt="">`;
     } else {
@@ -233,6 +266,7 @@
     const classes = ['sp-node', 'sp-image'];
     if (node.contentMode === 'fill') classes.push('sp-image--fill');
     if (node.containerRelativeShape) classes.push('sp-image--container-shape');
+    if (node.resizable === false) classes.push('sp-image--fixed');
     return `<span class="${classes.join(' ')}" style="${style}"${node.rawOpenURL ? ` data-url="${escapeAttribute(node.rawOpenURL)}"` : ''}>${content}</span>`;
   };
 
@@ -301,11 +335,49 @@
     return child.type === 'stack' && containsFlexibleSpacer(child, direction);
   });
 
+  const renderProgressLayer = (node, pick = colorToCSS) => {
+    const progress = node.progress;
+    if (!progress) return '';
+    const value = Math.min(100, Math.max(0, Number(progress.value) || 0));
+    const progressColor = escapeAttribute(pick(progress.progressColor) || '#007aff');
+    const trackColor = escapeAttribute(pick(progress.trackColor) || 'rgba(128,128,128,0.22)');
+    if (progress.style === 'linear') {
+      return `<span class="sp-progress-layer sp-progress-layer--linear" data-progress-style="linear" data-progress-value="${value}" style="background:${trackColor}"><span class="sp-progress-fill" style="width:${value}%;background:${progressColor}"></span></span>`;
+    }
+    const width = Number(node._size?.width) || Number(node.size?.width) || 40;
+    const height = Number(node._size?.height) || Number(node.size?.height) || 40;
+    const side = Math.max(8, Math.min(width, height));
+    const strokeWidth = Math.min(side / 2, Math.max(1, Number(progress.thickness) || 5));
+    const radius = Math.max(1, (side - strokeWidth) / 2);
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference * (1 - value / 100);
+    const center = side / 2;
+    return `<span class="sp-progress-layer sp-progress-layer--circular" data-progress-style="circular" data-progress-value="${value}"><svg class="sp-progress-svg" viewBox="0 0 ${side} ${side}" aria-hidden="true"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${trackColor}" stroke-width="${strokeWidth}"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${progressColor}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-dasharray="${circumference.toFixed(2)}" stroke-dashoffset="${dashOffset.toFixed(2)}" transform="rotate(-90 ${center} ${center})"/></svg></span>`;
+  };
+
+  const renderControlNode = (node) => {
+    if (node.type === 'button') {
+      return `<button type="button" class="sp-node sp-control sp-button" data-widget-action-id="${escapeAttribute(node.actionId)}">${escapeHTML(node.title)}</button>`;
+    }
+    if (node.type === 'refreshButton') {
+      return `<button type="button" class="sp-node sp-control sp-button sp-refresh-button" data-widget-refresh="true"><span class="sp-refresh-glyph" aria-hidden="true">↻</span><span>${escapeHTML(node.title)}</span></button>`;
+    }
+    if (node.type === 'toggle') {
+      const checked = Boolean(node.isOn);
+      return `<button type="button" class="sp-node sp-control sp-toggle${checked ? ' is-on' : ''}" role="switch" aria-checked="${checked}" data-widget-action-id="${escapeAttribute(node.actionId)}" data-widget-toggle-next="${!checked}"><span class="sp-toggle-label">${escapeHTML(node.title)}</span><span class="sp-toggle-track" aria-hidden="true"><i></i></span></button>`;
+    }
+    return '';
+  };
+
   const renderContainer = (node, now, pick, root = false, parentDirection = null) => {
     const direction = node.contentDirection || (root ? 'vertical' : 'horizontal');
+    const isTransparent = root && node.backgroundStyle === 'transparent';
+    const isCircularProgress = node.progress?.style === 'circular';
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
-    const background = gradientToCSS(node.backgroundGradient, pick) || pick(node.backgroundColor);
+    const background = isTransparent
+      ? null
+      : (gradientToCSS(node.backgroundGradient, pick) || pick(node.backgroundColor));
     const mainSize = parentDirection === 'horizontal' ? width : height;
     const flexChild = !root && node.type === 'stack' && !mainSize &&
       containsFlexibleSpacer(node, parentDirection);
@@ -314,8 +386,16 @@
       // 官方文档：topAlignContent 是默认对齐。horizontal stack 映射交叉轴；
       // vertical stack 的 top/center/bottom 是主轴概念，映射 justify-content，
       // 交叉轴保持 stretch 铺满（Scriptable 未暴露水平内容对齐）。
-      alignItems: direction === 'horizontal' ? (STACK_ALIGNMENT_TO_CSS[node.alignment] || 'flex-start') : 'stretch',
-      justifyContent: direction === 'vertical' ? STACK_ALIGNMENT_TO_CSS[node.alignment] || null : null,
+      alignItems: isCircularProgress
+        ? 'center'
+        : direction === 'horizontal'
+          ? (STACK_ALIGNMENT_TO_CSS[node.alignment] || 'flex-start')
+          : 'stretch',
+      justifyContent: isCircularProgress
+        ? 'center'
+        : direction === 'vertical'
+          ? STACK_ALIGNMENT_TO_CSS[node.alignment] || null
+          : null,
       padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
       width: root ? '100%' : node._size ? `${node._size.width}px` : width,
       height: root ? '100%' : node._size ? `${node._size.height}px` : height,
@@ -328,31 +408,53 @@
       borderRadius: node.cornerRadius ? `${node.cornerRadius}px` : null,
       overflow: node.cornerRadius ? 'hidden' : null,
     });
-    const backgroundImage = node.backgroundImage?.kind === 'draw'
+    const backgroundImage = !isTransparent && node.backgroundImage?.kind === 'draw'
       ? `<span class="sp-widget-background">${renderDrawImage(node.backgroundImage, 'sp-drawn-background', pick)}</span>`
       : '';
+    const progressLayer = node.progress ? renderProgressLayer(node, pick) : '';
     const children = node.elements.map((child) => {
       if (child.type === 'stack') return renderContainer(child, now, pick, false, direction);
       if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now, pick);
       if (child.type === 'image') return renderImageNode(child, pick);
       if (child.type === 'spacer') return renderSpacer(child, direction);
+      if (child.type === 'button' || child.type === 'refreshButton' || child.type === 'toggle') {
+        return renderControlNode(child);
+      }
       return '';
     }).join('');
     const classes = ['sp-node', root ? 'sp-runtime-root' : 'sp-stack', `sp-${direction}`];
     if (root && node.addAccessoryWidgetBackground) classes.push('sp-accessory-background');
+    if (isTransparent) classes.push('sp-transparent-background');
+    if (node.progress) {
+      classes.push('sp-progress-stack', `sp-progress-stack--${node.progress.style}`);
+    }
+    if (node.action) classes.push('sp-stack--action');
     const openURL = node.rawOpenURL || node.openURL;
-    return `<div class="${classes.join(' ')}" style="${style}"${openURL ? ` data-url="${escapeAttribute(openURL)}"` : ''}>${backgroundImage}${children}</div>`;
+    const actionAttrs = node.action
+      ? ` role="button" tabindex="0" data-widget-action-id="${escapeAttribute(node.action.id)}"${node.action.title ? ` aria-label="${escapeAttribute(node.action.title)}" title="${escapeAttribute(node.action.title)}"` : ''}`
+      : '';
+    const backgroundAttr = isTransparent ? ' data-background-style="transparent"' : '';
+    return `<div class="${classes.join(' ')}" style="${style}"${openURL ? ` data-url="${escapeAttribute(openURL)}"` : ''}${actionAttrs}${backgroundAttr}>${backgroundImage}${progressLayer}${children}</div>`;
   };
 
-  const renderWidgetTree = (tree, { now = new Date(), appearance = 'light', size = null } = {}) => {
+  const annotateLayoutTree = (tree, { now = new Date(), size = null, family = null } = {}) => {
+    const resolvedNow = now instanceof Date ? now : new Date(now);
+    return layoutEngine.annotate(
+      tree,
+      size,
+      (node) => (node.type === 'date' ? formatDate(new Date(node.date), resolvedNow, node.dateStyle) : node.text),
+      { family }
+    );
+  };
+
+  const renderWidgetTree = (tree, { now = new Date(), appearance = 'light', size = null, family = null } = {}) => {
     // Color.dynamic 在渲染期按外观取色：IR 中 light 为基准值、dark 为备用值。
     const pick = (color) => colorToCSS(appearance === 'dark' && color?.dark ? color.dark : color);
     const resolvedNow = now instanceof Date ? now : new Date(now);
-    // 宿主注入容器尺寸时启用布局引擎（提议-应答分配）；
+    // 宿主注入容器尺寸时启用布局引擎（二维提议-应答分配 + 绝对坐标输出）；
     // 缺省保持 flex 近似路径（测试钉板与无尺寸场景）。
     const target = Number(size?.width) > 0 && Number(size?.height) > 0
-      ? layoutEngine.annotate(tree, size, (node) =>
-          node.type === 'date' ? formatDate(new Date(node.date), resolvedNow, node.dateStyle) : node.text)
+      ? annotateLayoutTree(tree, { now: resolvedNow, size, family })
       : tree;
     return renderContainer(target, resolvedNow, pick, true);
   };
@@ -389,7 +491,15 @@
     return response;
   };
 
-  const createSandbox = ({ scriptId, family, appearance, now }) => {
+  const createSandbox = ({
+    scriptId,
+    family,
+    appearance,
+    now,
+    widgetAction = null,
+    widgetParameter = '',
+    storage = null,
+  }) => {
     const executionNow = now instanceof Date ? new Date(now) : new Date(now || Date.now());
     const nowMilliseconds = executionNow.getTime();
     let capturedWidget = null;
@@ -442,6 +552,17 @@
         return createFont(size, /black|heavy|bold/i.test(name) ? 700 : /semibold|medium/i.test(name) ? 600 : 400, family, /italic|oblique/i.test(name) ? 'italic' : 'normal', family === 'system' ? name : null);
       }
 
+      static largeTitle() { return createFont(34, 400); }
+      static title1() { return createFont(28, 400); }
+      static title2() { return createFont(22, 400); }
+      static title3() { return createFont(20, 400); }
+      static headline() { return createFont(17, 600); }
+      static body() { return createFont(17, 400); }
+      static callout() { return createFont(16, 400); }
+      static subheadline() { return createFont(15, 400); }
+      static footnote() { return createFont(13, 400); }
+      static caption1() { return createFont(12, 400); }
+      static caption2() { return createFont(11, 400); }
       static systemFont(size) { return createFont(size); }
       static regularSystemFont(size) { return createFont(size); }
       static mediumSystemFont(size) { return createFont(size, 500); }
@@ -453,12 +574,18 @@
       static heavySystemFont(size) { return createFont(size, 800); }
       static blackSystemFont(size) { return createFont(size, 900); }
       static italicSystemFont(size) { return createFont(size, 400, 'system', 'italic'); }
+      static ultraLightRoundedSystemFont(size) { return createFont(size, 200, 'rounded'); }
+      static thinRoundedSystemFont(size) { return createFont(size, 300, 'rounded'); }
+      static lightRoundedSystemFont(size) { return createFont(size, 300, 'rounded'); }
       static semiboldRoundedSystemFont(size) { return createFont(size, 600, 'rounded'); }
       static boldRoundedSystemFont(size) { return createFont(size, 700, 'rounded'); }
       static regularRoundedSystemFont(size) { return createFont(size, 400, 'rounded'); }
       static mediumRoundedSystemFont(size) { return createFont(size, 500, 'rounded'); }
       static heavyRoundedSystemFont(size) { return createFont(size, 800, 'rounded'); }
       static blackRoundedSystemFont(size) { return createFont(size, 900, 'rounded'); }
+      static ultraLightMonospacedSystemFont(size) { return createFont(size, 200, 'monospace'); }
+      static thinMonospacedSystemFont(size) { return createFont(size, 300, 'monospace'); }
+      static lightMonospacedSystemFont(size) { return createFont(size, 300, 'monospace'); }
       static regularMonospacedSystemFont(size) { return createFont(size, 400, 'monospace'); }
       static mediumMonospacedSystemFont(size) { return createFont(size, 500, 'monospace'); }
       static semiboldMonospacedSystemFont(size) { return createFont(size, 600, 'monospace'); }
@@ -491,17 +618,19 @@
     }
 
     class Path {
-      constructor() { this.shapes = []; this.commands = []; }
-      move(point) { this.commands.push({ type: 'move', point }); }
-      addLine(point) { this.commands.push({ type: 'line', point }); }
-      addRect(rect) { this.shapes.push({ type: 'rect', rect }); }
-      addEllipse(rect) { this.shapes.push({ type: 'ellipse', rect }); }
-      addRoundedRect(rect, cornerWidth, cornerHeight = cornerWidth) { this.shapes.push({ type: 'roundedRect', rect, radius: Math.min(cornerWidth, cornerHeight) }); }
-      addCurve(point, control1, control2) { this.commands.push({ type: 'curve', point, control1, control2 }); }
-      addQuadCurve(point, control) { this.commands.push({ type: 'quad', point, control }); }
+      constructor() { this.entries = []; }
+      move(point) { this.entries.push({ kind: 'cmd', type: 'move', point }); }
+      addLine(point) { this.entries.push({ kind: 'cmd', type: 'line', point }); }
+      addRect(rect) { this.entries.push({ kind: 'shape', type: 'rect', rect }); }
+      addEllipse(rect) { this.entries.push({ kind: 'shape', type: 'ellipse', rect }); }
+      addRoundedRect(rect, cornerWidth, cornerHeight = cornerWidth) {
+        this.entries.push({ kind: 'shape', type: 'roundedRect', rect, radius: Math.min(cornerWidth, cornerHeight) });
+      }
+      addCurve(point, control1, control2) { this.entries.push({ kind: 'cmd', type: 'curve', point, control1, control2 }); }
+      addQuadCurve(point, control) { this.entries.push({ kind: 'cmd', type: 'quad', point, control }); }
       addLines(points) { points.forEach((point, index) => index === 0 ? this.move(point) : this.addLine(point)); }
       addRects(rects) { rects.forEach((rect) => this.addRect(rect)); }
-      closeSubpath() { this.commands.push({ type: 'close' }); }
+      closeSubpath() { this.entries.push({ kind: 'cmd', type: 'close' }); }
     }
 
     class DrawContext {
@@ -521,6 +650,10 @@
       setStrokeColor(color) { this.strokeColor = color; }
       setLineWidth(width) { this.lineWidth = Number(width); }
       setFont(font) { this.font = font; }
+      setFontSize(size) {
+        const current = this.font || createFont(12);
+        this.font = createFont(size, current.weight, current.family, current.style, current.name);
+      }
       setTextColor(color) { this.textColor = color; }
       setTextAlignedLeft() { this.textAlignment = 'left'; }
       setTextAlignedCenter() { this.textAlignment = 'center'; }
@@ -532,23 +665,39 @@
       fillEllipse(rect) { this.ops.push({ type: 'fillEllipse', rect, color: this.fillColor }); }
       strokeEllipse(rect) { this.ops.push({ type: 'strokeEllipse', rect, color: this.strokeColor, lineWidth: this.lineWidth }); }
       addPath(path) { this.currentPath = path; }
-      fillPath() {
-        for (const shape of this.currentPath?.shapes || []) {
-          this.ops.push({ type: shape.type === 'roundedRect' ? 'roundedRect' : shape.type === 'ellipse' ? 'fillEllipse' : 'fillRect', ...shape, color: this.fillColor });
+      emitPathOps(mode) {
+        const entries = this.currentPath?.entries || [];
+        const color = mode === 'fill' ? this.fillColor : this.strokeColor;
+        const strokeExtra = mode === 'stroke' ? { lineWidth: this.lineWidth } : {};
+        let commandBatch = [];
+        const flushCommands = () => {
+          if (commandBatch.length > 0) {
+            this.ops.push({ type: 'path', commands: commandBatch, color, mode, ...strokeExtra });
+            commandBatch = [];
+          }
+        };
+        for (const entry of entries) {
+          if (entry.kind === 'cmd') {
+            commandBatch.push(entry);
+          } else {
+            flushCommands();
+            const opType = mode === 'fill'
+              ? (entry.type === 'roundedRect' ? 'roundedRect' : entry.type === 'ellipse' ? 'fillEllipse' : 'fillRect')
+              : (entry.type === 'roundedRect' ? 'strokeRoundedRect' : entry.type === 'ellipse' ? 'strokeEllipse' : 'strokeRect');
+            this.ops.push({ ...entry, type: opType, color, ...strokeExtra });
+          }
         }
-        if (this.currentPath?.commands?.length) this.ops.push({ type: 'path', commands: this.currentPath.commands, color: this.fillColor, mode: 'fill' });
+        flushCommands();
       }
-      strokePath() {
-        for (const shape of this.currentPath?.shapes || []) {
-          this.ops.push({ type: shape.type === 'roundedRect' ? 'strokeRoundedRect' : shape.type === 'ellipse' ? 'strokeEllipse' : 'strokeRect', ...shape, color: this.strokeColor, lineWidth: this.lineWidth });
-        }
-        if (this.currentPath?.commands?.length) this.ops.push({ type: 'path', commands: this.currentPath.commands, color: this.strokeColor, lineWidth: this.lineWidth, mode: 'stroke' });
-      }
+      fillPath() { this.emitPathOps('fill'); }
+      strokePath() { this.emitPathOps('stroke'); }
       drawText(text, point) { this.drawTextInRect(text, new Rect(point.x, point.y, this.size.width - point.x, this.size.height - point.y)); }
       drawTextInRect(text, rect) {
         this.ops.push({ type: 'text', text, rect, color: this.textColor, font: this.font, alignment: this.textAlignment });
       }
-      drawImageInRect(image, rect) { this.ops.push({ type: 'image', image, rect, color: this.textColor }); }
+      drawImageInRect(image, rect, rotation = 0) {
+        this.ops.push({ type: 'image', image, rect, color: this.textColor, rotation: Number(rotation) || 0 });
+      }
       drawImageAtPoint(image, point) {
         const size = image?.size || new Size(16, 16);
         this.drawImageInRect(image, new Rect(point.x, point.y, size.width, size.height));
@@ -683,6 +832,43 @@
       }
     }
 
+    class ButtonElement {
+      constructor(title, options) {
+        const actionId = typeof options?.id === 'string' ? options.id.trim() : '';
+        if (!actionId) throw new TypeError('addButton 需要非空字符串 options.id');
+        this.title = String(title ?? '');
+        this.actionId = actionId;
+      }
+
+      toIR() {
+        return ir.irButton(this.title, this.actionId);
+      }
+    }
+
+    class RefreshButtonElement {
+      constructor(title) {
+        this.title = String(title ?? '');
+      }
+
+      toIR() {
+        return ir.irRefreshButton(this.title);
+      }
+    }
+
+    class ToggleElement {
+      constructor(title, isOn, options) {
+        const actionId = typeof options?.id === 'string' ? options.id.trim() : '';
+        if (!actionId) throw new TypeError('addToggle 需要非空字符串 options.id');
+        this.title = String(title ?? '');
+        this.isOn = Boolean(isOn);
+        this.actionId = actionId;
+      }
+
+      toIR() {
+        return ir.irToggle(this.title, this.isOn, this.actionId);
+      }
+    }
+
     class StackContainer {
       constructor() {
         this.contentDirection = 'horizontal';
@@ -698,6 +884,8 @@
         this.borderColor = null;
         this.padding = null;
         this.rawOpenURL = null;
+        this.progress = null;
+        this.action = null;
       }
 
       addStack() {
@@ -730,6 +918,50 @@
         return child;
       }
 
+      addProgress(value, options = {}) {
+        const style = options?.style === 'linear' ? 'linear' : 'circular';
+        const thickness = Number(options?.thickness) > 0
+          ? Number(options.thickness)
+          : (style === 'linear' ? 6 : 5);
+        const child = new StackContainer();
+        child.layoutVertically();
+        child.centerAlignContent();
+        child.size = style === 'linear' ? new Size(120, thickness) : new Size(40, 40);
+        child.progress = {
+          value: Math.min(100, Math.max(0, Number(value) || 0)),
+          style,
+          progressColor: options?.progressColor || null,
+          trackColor: options?.trackColor || null,
+          thickness,
+        };
+        this.elements.push(child);
+        return child;
+      }
+
+      addButton(title, options) {
+        const child = new ButtonElement(title, options);
+        this.elements.push(child);
+      }
+
+      addRefreshButton(title) {
+        const child = new RefreshButtonElement(title);
+        this.elements.push(child);
+      }
+
+      addToggle(title, isOn, options) {
+        const child = new ToggleElement(title, isOn, options);
+        this.elements.push(child);
+      }
+
+      setAction(title, options) {
+        if (title === null || title === undefined || !options?.id) {
+          this.action = null;
+          return;
+        }
+        const id = String(options.id).trim();
+        this.action = id ? { title: String(title), id } : null;
+      }
+
       setPadding(top, leading, bottom, trailing) {
         this.padding = { top: Number(top), left: Number(leading), bottom: Number(bottom), right: Number(trailing) };
       }
@@ -758,6 +990,8 @@
         node.borderColor = ir.colorToIR(this.borderColor);
         node.padding = this.padding;
         node.rawOpenURL = this.rawOpenURL;
+        if ('progress' in node) node.progress = ir.progressToIR(this.progress);
+        if ('action' in node) node.action = ir.actionToIR(this.action);
         node.elements = this.elements.map((child) => child.toIR());
         return node;
       }
@@ -771,6 +1005,7 @@
       constructor() {
         super();
         this.contentDirection = 'vertical';
+        this.backgroundStyle = 'default';
         this.refreshAfterDate = null;
         this.addAccessoryWidgetBackground = false;
       }
@@ -779,11 +1014,16 @@
       async presentMedium() {}
       async presentLarge() {}
       async presentExtraLarge() {}
+      async presentExtraLargePortrait() {}
+      async presentAccessoryInline() {}
+      async presentAccessoryCircular() {}
+      async presentAccessoryRectangular() {}
 
       toIR() {
         const node = this.containerIR(ir.irList());
         node.openURL = node.rawOpenURL;
         delete node.rawOpenURL;
+        node.backgroundStyle = this.backgroundStyle === 'transparent' ? 'transparent' : 'default';
         node.refreshAfterDate = this.refreshAfterDate
           ? new Date(this.refreshAfterDate).toISOString()
           : null;
@@ -814,14 +1054,16 @@
     }
 
     // 通用项由运行时预置；组件专属凭据由各自 mock 模块的 keychain 字段注入。
-    const keychainValues = new Map([
-      [`zkl2333.widgetUpdater.${scriptId}.checkedAt`, String(Math.floor(nowMilliseconds / 1000))],
-    ]);
+    const keychainValues = storage?.keychain instanceof Map ? storage.keychain : new Map();
+    const updaterKey = `zkl2333.widgetUpdater.${scriptId}.checkedAt`;
+    if (!keychainValues.has(updaterKey)) {
+      keychainValues.set(updaterKey, String(Math.floor(nowMilliseconds / 1000)));
+    }
     const mockKeychain = ((global.ScriptablePreviewMocks || {})[scriptId] || {}).keychain || {};
     for (const [key, value] of Object.entries(mockKeychain)) {
-      keychainValues.set(key, String(value));
+      if (!keychainValues.has(key)) keychainValues.set(key, String(value));
     }
-    const fileValues = new Map();
+    const fileValues = storage?.files instanceof Map ? storage.files : new Map();
     const FileManager = {
       local: () => ({
         documentsDirectory: () => '/preview/documents',
@@ -845,10 +1087,20 @@
     };
     const SFSymbol = {
       named: (name) => {
-        const image = { __kind: 'symbol', name: String(name) };
+        const image = { __kind: 'symbol', name: String(name), weight: 400 };
+        const setWeight = (weight) => () => { image.weight = weight; };
         return {
           image,
           applyFont: (font) => { image.font = font; },
+          applyUltraLightWeight: setWeight(200),
+          applyThinWeight: setWeight(250),
+          applyLightWeight: setWeight(300),
+          applyRegularWeight: setWeight(400),
+          applyMediumWeight: setWeight(500),
+          applySemiboldWeight: setWeight(600),
+          applyBoldWeight: setWeight(700),
+          applyHeavyWeight: setWeight(800),
+          applyBlackWeight: setWeight(900),
         };
       },
     };
@@ -922,11 +1174,15 @@
       Script,
       Size,
       URLScheme: { forRunningScript: () => `scriptable:///run/${scriptId}` },
-      args: { widgetParameter: '' },
+      args: {
+        widgetParameter: widgetParameter ? String(widgetParameter) : '',
+        widgetAction: widgetAction ? { ...widgetAction } : null,
+      },
       config: {
         runsInActionExtension: false,
         runsInApp: false,
         runsInWidget: true,
+        runsInAccessoryWidget: String(family || '').startsWith('accessory'),
         widgetFamily: family,
       },
       console,
@@ -936,10 +1192,27 @@
     return { sandbox, getWidget: () => capturedWidget };
   };
 
-  const executeSource = async ({ source, scriptId, family, appearance = 'light', now = new Date() }) => {
+  const executeSource = async ({
+    source,
+    scriptId,
+    family,
+    appearance = 'light',
+    now = new Date(),
+    widgetAction = null,
+    widgetParameter = '',
+    storage = null,
+  }) => {
     if (!source || typeof source !== 'string') throw new TypeError('dist 源码不能为空');
     ir.resetIdentifiers();
-    const { sandbox, getWidget } = createSandbox({ scriptId, family, appearance, now });
+    const { sandbox, getWidget } = createSandbox({
+      scriptId,
+      family,
+      appearance,
+      now,
+      widgetAction,
+      widgetParameter,
+      storage,
+    });
     const run = new Function(
       'sandbox',
       'source',
@@ -970,15 +1243,20 @@
       family: context.family.id,
       appearance: context.appearance,
       now: context.now,
+      widgetAction: context.widgetAction ?? null,
+      widgetParameter: context.widgetParameter ?? '',
+      storage: context.storage ?? null,
     });
     return renderWidgetTree(tree, {
       now: context.now,
       appearance: context.appearance,
       size: { width: context.family.width, height: context.family.height },
+      family: context.family.id,
     });
   };
 
   global.ScriptablePreviewRuntime = Object.freeze({
+    annotateLayoutTree,
     executeSource,
     mountDateTicker,
     renderDistWidget,

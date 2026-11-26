@@ -5,6 +5,13 @@ import {
   runWidgetMenu,
   shouldShowWidgetMenu,
 } from '../lib/widget-menu.js';
+import {
+  ACCESSORY_FAMILIES,
+  ALL_PREVIEW_FAMILIES,
+  addRefreshAction,
+  applyTransparentBackground,
+  isLargeFamily,
+} from '../lib/widget-v18.js';
 
 // ==========================================
 // XLYRA · 控制台看板
@@ -77,18 +84,7 @@ const C = {
   led: new Color("#d97706"), // 位图无法动态换色，选取兼顾米白与黑底的深琥珀
   ledDim: new Color("#d97706", 0.14),
 };
-const ACCESSORY_FAMILIES = [
-  'accessoryInline',
-  'accessoryCircular',
-  'accessoryRectangular',
-];
-const PREVIEW_FAMILIES = [
-  'small',
-  'medium',
-  'large',
-  'extraLarge',
-  ...ACCESSORY_FAMILIES,
-];
+const PREVIEW_FAMILIES = ALL_PREVIEW_FAMILIES;
 const ACCESSORY_COLOR = Color.dynamic(new Color('#111111'), new Color('#FFFFFF'));
 const ACCESSORY_SECONDARY = Color.dynamic(
   new Color('#111111', 0.62),
@@ -176,7 +172,13 @@ function addLed(parent, text, opts, maxWidth = null) {
 // 点阵网格底纹(透明底, 底色由 backgroundColor 动态解析, 外观切换即时生效)
 function dotGrid(family) {
   const [w, h] =
-    family === "small" ? [180, 180] : family === "medium" ? [380, 180] : [380, 400];
+    family === "small"
+      ? [180, 180]
+      : family === "medium"
+        ? [380, 180]
+        : family === "extraLargePortrait"
+          ? [380, 740]
+          : [380, 400];
   const ctx = new DrawContext();
   ctx.size = new Size(w, h);
   ctx.opaque = false;
@@ -202,9 +204,14 @@ function brandRow(w, time) {
   brand.font = MONO_B;
   brand.textColor = C.fg;
   s.addSpacer();
-  const t = s.addText(time);
-  t.font = MONO_SM;
-  t.textColor = C.dim;
+  addRefreshAction(s, {
+    title: '刷新 XLYRA 控制台',
+    text: time,
+    font: MONO_SM,
+    textColor: C.dim,
+    iconColor: C.amber,
+    iconSize: 9,
+  });
 }
 
 function sectionTitle(w, text) {
@@ -836,6 +843,7 @@ async function createWidget(family = config.widgetFamily || "small") {
     w.setPadding(family === 'small' ? 14 : 16, 14, family === 'small' ? 14 : 16, 14);
     w.backgroundColor = C.bg;
     w.backgroundImage = dotGrid(family);
+    applyTransparentBackground(w, __SCRIPT_ID__);
   }
   const now = new Date();
   const time = now.getHours() + ":" + ("0" + now.getMinutes()).slice(-2);
@@ -885,7 +893,7 @@ async function createWidget(family = config.widgetFamily || "small") {
   } else {
     if (isAccessory) renderAccessory(w, family, data);
     else if (family === "medium") renderMedium(w, data, time);
-    else if (family === "large" || family === 'extraLarge') renderLarge(w, data, time);
+    else if (isLargeFamily(family)) renderLarge(w, data, time);
     else renderSmall(w, data, time);
   }
 
@@ -911,6 +919,7 @@ if (shouldShowWidgetMenu()) {
         message: '数据看板与凭证管理',
         version: CONFIG.version,
         updater,
+        scriptId: __SCRIPT_ID__,
         previewFamilies: PREVIEW_FAMILIES,
         actions: [{ id: 'setup', title: '重新配置凭证' }],
       });
