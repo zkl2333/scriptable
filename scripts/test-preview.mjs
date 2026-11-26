@@ -896,15 +896,16 @@ assert.deepEqual(
 );
 
 const workHelperSourceForM6 = await readFile(new URL('../dist/work-helper.js', import.meta.url), 'utf8');
+const workHelperNow = new Date(2026, 6, 27, 15, 30, 0);
 const workHelperMediumLaid = runtime.annotateLayoutTree(
   await runtime.executeSource({
     source: workHelperSourceForM6,
     scriptId: 'work-helper',
     family: 'medium',
     appearance: 'light',
-    now: new Date('2026-07-27T15:30:00+08:00'),
+    now: workHelperNow,
   }),
-  { now: new Date('2026-07-27T15:30:00+08:00'), size: { width: 338, height: 158 }, family: 'medium' }
+  { now: workHelperNow, size: { width: 338, height: 158 }, family: 'medium' }
 );
 const workHeroDate = workHelperMediumLaid.elements[2].elements[0].elements[2];
 assert.equal(workHeroDate._lines.length, 1, 'work-helper 中号主倒计时应在垂直空间受限时按 minimumScaleFactor 单行收敛');
