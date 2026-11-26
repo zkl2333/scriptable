@@ -106,14 +106,15 @@ DOM 渲染器（preview/runtime.js，只消费 IR）
 - 渲染器从"一次性输出 HTML 字符串"演进为"挂载后可更新的 DOM 节点"，
   保留现有的字符串渲染路径供测试钉板
 
-### M6 — 真机差异校验（兜底）
+### M6 — 真机差异校验（兜底）✅ 已完成（iOS 27.2 模拟器实测定标）
 
-纯推理无法闭合的项目，需真机对照实验后回填规则：
+通过 Xcode 27.2 + iOS 27.2 Simulator（iPhone 18 Pro）运行 SwiftUI / CoreText 探针与全量组件黄金对照，实测回填全部未闭合规则：
 
-- Text 截断最小宽度的确切定义
-- widget 环境下系统默认间距的确切值（当前取 8px）
-- 默认 padding 的各尺寸族取值表
-- `verticalTextAlignment`（text 元素特有字段）的实际作用
+- **Text 截断最小宽度**：SwiftUI `Text.sizeThatFits(.zero)` 为 `0`；单行截断时返回实际截断渲染宽度（`prefix + "…"`），将多余空间回流给后续 `Spacer`；同时修复 `HStack`/`VStack` 内 `minimumScaleFactor` 的缩放后行高同步与竖直 `maxHeight` 约束缩字号
+- **系统默认间距与 Spacer 最小长度**：SwiftUI `Spacer()`（`minLength: nil`）实测为 `8pt`；`ListWidget.spacing` 与 `WidgetStack.spacing` 默认均为 `0`（对齐官方定义）
+- **默认 padding（`useDefaultPadding()`）与根容器对齐**：主屏 `ListWidget` 默认内边距（`padding === null`）为 `{ top: 16, right: 16, bottom: 16, left: 16 }`（SwiftUI `.padding()` 实测 `16pt`），锁屏 accessory 族为 `0`；`WidgetStack` 默认为 `0`，显式调用 `useDefaultPadding()` 时取 `16pt`；`ListWidget` 无 `Spacer` 时主屏默认顶部对齐、`accessoryCircular` 居中对齐
+- **`verticalTextAlignment`**：经 `@types/scriptable-ios` 与官方文档核实 Scriptable 无此 API（`ir.js` 保留 `null` 占位兼容）
+- **真实系统字体度量表**：提取纯 JSON 度量表 [preview/font-metrics.json](../preview/font-metrics.json)（SF Pro / SF Rounded / SF Mono / PingFang SC），实测全字重全字族行高比 `1.1934`（`1222/1024`），含 `20pt` 光学字号切换与 `0.125em` CJK-拉丁自动间距，540 组实测文本平均宽度误差从 `6.57%` 降至 `0.83%`
 
 ## 4. 工程约束（不变量）
 

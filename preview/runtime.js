@@ -15,6 +15,7 @@
   const textMeasurer = measure.createMeasurer();
   const layoutEngine = layout.createLayoutEngine({
     measure: textMeasurer.measure,
+    truncateText: textMeasurer.truncateText,
     wrapText: textMeasurer.wrapText,
     measureTextBlock: textMeasurer.measureTextBlock,
     defaultFontSize: measure.DEFAULT_FONT_SIZE,
@@ -295,7 +296,9 @@
     });
     const classes = ['sp-node', 'sp-text'];
     if (lineLimit) classes.push('sp-text--clamped');
-    if (lineLimit === 1) classes.push('sp-text--single-line');
+    if (lineLimit === 1 || (node._fontScale && node._lines?.length === 1)) {
+      classes.push('sp-text--single-line');
+    }
     // 布局引擎已完成缩放计算时不再输出 DOM 级缩放属性，避免二次缩放
     const scaleAttributes = minimumScaleFactor && styling.font && !node._fontScale
       ? ` data-font-size="${styling.font.size}" data-minimum-scale-factor="${minimumScaleFactor}"`
@@ -369,10 +372,17 @@
     return '';
   };
 
-  const renderContainer = (node, now, pick, root = false, parentDirection = null) => {
+  const DEFAULT_HOME_PADDING = Object.freeze({ top: 16, right: 16, bottom: 16, left: 16 });
+
+  const renderContainer = (node, now, pick, root = false, parentDirection = null, family = null) => {
     const direction = node.contentDirection || (root ? 'vertical' : 'horizontal');
     const isTransparent = root && node.backgroundStyle === 'transparent';
     const isCircularProgress = node.progress?.style === 'circular';
+    const isAccessory = String(family || '').startsWith('accessory');
+    const resolvedPadding = node.padding || (root && !isAccessory ? DEFAULT_HOME_PADDING : null);
+    const hasFlexSpacer = root && (node.elements || []).some(
+      (child) => child.type === 'spacer' && !Number.isFinite(child.length)
+    );
     const width = Number(node.size?.width) > 0 ? `${node.size.width}px` : null;
     const height = Number(node.size?.height) > 0 ? `${node.size.height}px` : null;
     const background = isTransparent
@@ -394,9 +404,9 @@
       justifyContent: isCircularProgress
         ? 'center'
         : direction === 'vertical'
-          ? STACK_ALIGNMENT_TO_CSS[node.alignment] || null
+          ? (STACK_ALIGNMENT_TO_CSS[node.alignment] || (root && family === 'accessoryCircular' && !hasFlexSpacer ? 'center' : null))
           : null,
-      padding: node.padding ? `${node.padding.top}px ${node.padding.right}px ${node.padding.bottom}px ${node.padding.left}px` : null,
+      padding: resolvedPadding ? `${resolvedPadding.top}px ${resolvedPadding.right}px ${resolvedPadding.bottom}px ${resolvedPadding.left}px` : null,
       width: root ? '100%' : node._size ? `${node._size.width}px` : width,
       height: root ? '100%' : node._size ? `${node._size.height}px` : height,
       // 布局引擎已显式分配尺寸的节点不再使用 flex 启发式
@@ -413,7 +423,7 @@
       : '';
     const progressLayer = node.progress ? renderProgressLayer(node, pick) : '';
     const children = node.elements.map((child) => {
-      if (child.type === 'stack') return renderContainer(child, now, pick, false, direction);
+      if (child.type === 'stack') return renderContainer(child, now, pick, false, direction, family);
       if (child.type === 'text' || child.type === 'date') return renderTextNode(child, now, pick);
       if (child.type === 'image') return renderImageNode(child, pick);
       if (child.type === 'spacer') return renderSpacer(child, direction);
@@ -456,7 +466,7 @@
     const target = Number(size?.width) > 0 && Number(size?.height) > 0
       ? annotateLayoutTree(tree, { now: resolvedNow, size, family })
       : tree;
-    return renderContainer(target, resolvedNow, pick, true);
+    return renderContainer(target, resolvedNow, pick, true, null, family);
   };
 
   // 挂载后自动刷新 relative/offset/timer 日期文本（系统级行为，无需重跑脚本）。
@@ -966,7 +976,9 @@
         this.padding = { top: Number(top), left: Number(leading), bottom: Number(bottom), right: Number(trailing) };
       }
 
-      useDefaultPadding() { this.padding = null; }
+      useDefaultPadding() {
+        this.padding = this instanceof ListWidget ? null : { top: 16, left: 16, bottom: 16, right: 16 };
+      }
 
       layoutHorizontally() { this.contentDirection = 'horizontal'; }
       layoutVertically() { this.contentDirection = 'vertical'; }

@@ -119,7 +119,7 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
 .preview-stage { position: relative; display: grid; place-items: center; min-width: 0; height: 225px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background-color: var(--stage); background-image: linear-gradient(var(--stage-grid) 1px, transparent 1px), linear-gradient(90deg, var(--stage-grid) 1px, transparent 1px); background-size: 18px 18px; }
 .preview-stage--focus { width: 100%; height: min(58vh, 580px); min-height: 380px; margin-top: 0; border-radius: 7px; }
 .preview-scale-shell { display: block; flex: 0 0 auto; }
-.sp-widget { width: var(--widget-width); height: var(--widget-height); overflow: hidden; transform-origin: top left; border-radius: 22px; box-shadow: var(--shadow); line-height: 1.16; }
+.sp-widget { width: var(--widget-width); height: var(--widget-height); overflow: hidden; transform-origin: top left; border-radius: 22px; box-shadow: var(--shadow); line-height: 1.1934; }
 
 .widget-pad { width: 100%; height: 100%; padding: 15px; }
 .widget-kicker { display: flex; align-items: center; gap: 6px; color: #777069; font-size: 10px; }
@@ -488,7 +488,7 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  line-height: 1.16;
+  line-height: 1.1934;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

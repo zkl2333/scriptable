@@ -12,18 +12,40 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 SCALE = 3
-DEFAULT_LINE_RATIO = 1.16
+DEFAULT_LINE_RATIO = 1.1934
 
 _VENV = Path(sys.executable).parent.parent
 _FONT_DIR = _VENV.parent / "fonts"
 _MATPLOTLIB_TTF = _VENV / "Lib/site-packages/matplotlib/mpl-data/fonts/ttf"
+_MAC_SF_MONO = Path("/System/Library/Fonts/SFNSMono.ttf")
+_MAC_SF_ROUNDED = Path("/System/Library/Fonts/SFNSRounded.ttf")
+_MAC_SF_SYSTEM = Path("/System/Library/Fonts/SFNS.ttf")
+
+
+def _find_pingfang() -> Path | None:
+    assets_root = Path("/System/Library/AssetsV2")
+    if assets_root.exists():
+        for candidate in assets_root.glob("com_apple_MobileAsset_Font*/**/*.asset/AssetData/PingFang.ttc"):
+            return candidate
+    return None
+
+
+_MAC_PINGFANG = _find_pingfang()
 
 
 def _font_path(family: str, weight: int) -> Path:
     bold = weight >= 600
     if family == "monospace":
+        if _MAC_SF_MONO.exists():
+            return _MAC_SF_MONO
         name = "DejaVuSansMono-Bold.ttf" if bold else "DejaVuSansMono.ttf"
         return _MATPLOTLIB_TTF / name
+    if family == "rounded" and _MAC_SF_ROUNDED.exists():
+        return _MAC_SF_ROUNDED
+    if _MAC_PINGFANG and _MAC_PINGFANG.exists():
+        return _MAC_PINGFANG
+    if _MAC_SF_SYSTEM.exists():
+        return _MAC_SF_SYSTEM
     name = "NotoSansSC-Bold.ttf" if bold else "NotoSansSC-Regular.ttf"
     return _FONT_DIR / name
 

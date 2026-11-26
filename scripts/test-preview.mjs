@@ -478,8 +478,8 @@ const allocationTree = await runtime.executeSource({
   now: fixedNow,
 });
 // small = 158×158，padding 10 → 内层 138×138。
-// 近似测量 @15px：ASCII 0.55em=8.25/字符；短文本理想 16.5、长文本理想 330。
-// 分配：短文本不灵活先拿满 16.5，长文本按需取 113.5（截断），Spacer 兜底 8。
+// iOS 27.2 SF Pro 实测度量 @15px：'AB' 理想 19.50px；长文本 40 个 X 截断渲染占 101.36px（9*X+'…'），
+// 剩余 17.15px 回流给弹性 Spacer（对齐 SwiftUI iPhone 18 Pro 实测 19.67 / 101.67 / 16.67）。
 const allocationBody = runtime.renderWidgetTree(allocationTree, {
   now: fixedNow,
   size: { width: 158, height: 158 },
@@ -492,21 +492,21 @@ assert.doesNotMatch(
 );
 assert.match(
   allocationBody,
-  /class="sp-node sp-text" style="[^"]*width:113\.5px[^"]*">X+</,
-  '长文本应按需取用剩余提议（而非与短文本比例收缩）'
+  /class="sp-node sp-text" style="[^"]*width:101\.36px[^"]*">X+</,
+  '长文本应按需取用并按截断后实际宽度占用空间'
 );
 assert.match(
   allocationBody,
-  /class="sp-node sp-spacer" style="[^"]*width:8px/,
-  'Spacer 应分得预扣的最小长度'
+  /class="sp-node sp-spacer" style="[^"]*width:17\.15px/,
+  '长文本截断后的剩余宽度应与最小长度一起回流给弹性 Spacer'
 );
 assert.match(
   allocationBody,
-  /class="sp-node sp-stack sp-horizontal" style="[^"]*width:138px;height:17\.4px/,
-  '横向子 Stack 应 stretch 到内宽、高度为单行文本行高'
+  /class="sp-node sp-stack sp-horizontal" style="[^"]*width:138px;height:17\.9px/,
+  '横向子 Stack 应 stretch 到内宽、高度为 iOS 27.2 单行文本行高（15×1.1934=17.9px）'
 );
 const noSizeBody = runtime.renderWidgetTree(allocationTree, { now: fixedNow });
-assert.doesNotMatch(noSizeBody, /width:113\.5px/, '未注入容器尺寸时应保持 flex 近似路径');
+assert.doesNotMatch(noSizeBody, /width:101\.36px/, '未注入容器尺寸时应保持 flex 近似路径');
 
 const scaleFixture = `
 const widget = new ListWidget();
@@ -525,16 +525,21 @@ const scaleTree = await runtime.executeSource({
   appearance: 'light',
   now: fixedNow,
 });
-// 理想宽度 20×11=220 > 内层 138；按 minimumScaleFactor 二分缩字号：
-// 11·s ≤ 138 → s ≈ 12.55（下限 10 未触达），随后不再截断
+// SF Pro @20px 20 个 X 理想宽度 258.28 > 内层 138；二分缩字号至 10.41px（下限 10 未触达），
+// 且横向文本行高同步收敛至 10.41×1.1934 = 12.42px。
 const scaleBody = runtime.renderWidgetTree(scaleTree, {
   now: fixedNow,
   size: { width: 158, height: 158 },
 });
 assert.match(
   scaleBody,
-  /font-size:12\.55px/,
+  /font-size:10\.41px/,
   'minimumScaleFactor 应先二分缩小字号再考虑截断'
+);
+assert.match(
+  scaleBody,
+  /height:12\.42px/,
+  '横向文本缩放后行高应同步按缩放后字号计算'
 );
 assert.doesNotMatch(
   scaleBody,
@@ -589,15 +594,20 @@ const borderTree = await runtime.executeSource({
   appearance: 'light',
   now: fixedNow,
 });
-// 近似测量 'AB' @15px = 16.5；border-box 下盒子宽度 = 16.5 + padding 14 + border 2
+// iOS 27.2 SF Pro 'AB' @15px = 19.50；border-box 下盒子宽度 = 19.50 + padding 14 + border 2 = 35.5
 const borderBody = runtime.renderWidgetTree(borderTree, {
   now: fixedNow,
   size: { width: 158, height: 158 },
 });
 assert.match(
   borderBody,
-  /class="sp-node sp-stack sp-vertical" style="[^"]*width:32\.5px/,
-  '布局引擎应把 border 计入内容空间侵占（16.5 + 14 + 2×1）'
+  /class="sp-node sp-stack sp-vertical" style="[^"]*width:35\.5px/,
+  '布局引擎应把 border 计入内容空间侵占（19.50 + 14 + 2×1）'
+);
+assert.match(
+  borderBody,
+  /class="sp-node sp-runtime-root sp-vertical" style="[^"]*padding:16px 16px 16px 16px/,
+  '未调用 setPadding 的主屏 ListWidget 应使用 SwiftUI 默认 16pt 内边距'
 );
 
 // 二维布局引擎与渲染内核进阶测试：
@@ -807,6 +817,99 @@ assert.match(
   /\.sp-vertical > \.sp-text \{ flex-shrink: 0; \}/,
   '纵向 Stack 不应把 Text 压缩到原生行高以下'
 );
+assert.match(previewStyles, /line-height: 1\.1934;/, 'CSS 行高比应与 iOS 27.2 CoreText 实测 1.1934 一致');
+
+// M6 实测定标单测：font-metrics.json 同源一致性、默认 padding、accessoryCircular 居中、竖直高度缩放约束
+const fontMetricsJSON = JSON.parse(await readFile(new URL('../preview/font-metrics.json', import.meta.url), 'utf8'));
+assert.equal(measureModule.LINE_HEIGHT_RATIO, fontMetricsJSON.lineHeightRatio, 'measure.js 行高比应与 font-metrics.json 一致');
+assert.deepEqual(measureModule.FONT_METRICS.ascii, fontMetricsJSON.ascii, 'measure.js ASCII 度量表应与 font-metrics.json 同源');
+assert.equal(
+  Math.round(measurer.measure('RENDER', { family: 'monospace', size: 10, weight: 400 }) * 100) / 100,
+  37.09,
+  'SF Mono 等宽字符应使用实测 0.6182em'
+);
+const sumCharWidths = Array.from('2小时0分钟').reduce(
+  (sum, ch) => sum + measurer.measure(ch, { family: 'system', size: 15, weight: 400 }),
+  0
+);
+assert.ok(
+  measurer.measure('2小时0分钟', { family: 'system', size: 15, weight: 400 }) > sumCharWidths + 5,
+  'CJK-拉丁直接邻接应计入 CoreText 自动间距'
+);
+
+const defaultPaddingFixture = `
+const widget = new ListWidget();
+widget.useDefaultPadding();
+const stack = widget.addStack();
+stack.useDefaultPadding();
+stack.addText('PAD');
+Script.setWidget(widget);
+Script.complete();
+`;
+const defaultPadTree = await runtime.executeSource({
+  source: defaultPaddingFixture,
+  scriptId: 'default-padding-fixture',
+  family: 'small',
+  appearance: 'light',
+  now: fixedNow,
+});
+const defaultPadHome = runtime.annotateLayoutTree(defaultPadTree, {
+  now: fixedNow,
+  size: { width: 158, height: 158 },
+  family: 'small',
+});
+assert.deepEqual(
+  { x: defaultPadHome.elements[0]._frame.x, y: defaultPadHome.elements[0]._frame.y },
+  { x: 16, y: 16 },
+  '主屏 ListWidget 默认 padding 应为 16pt'
+);
+assert.deepEqual(
+  { x: defaultPadHome.elements[0].elements[0]._frame.x, y: defaultPadHome.elements[0].elements[0]._frame.y },
+  { x: 32, y: 32 },
+  'WidgetStack.useDefaultPadding() 应叠加 16pt 内边距'
+);
+const defaultPadAccessory = runtime.annotateLayoutTree(defaultPadTree, {
+  now: fixedNow,
+  size: { width: 172, height: 76 },
+  family: 'accessoryRectangular',
+});
+assert.deepEqual(
+  { x: defaultPadAccessory.elements[0]._frame.x, y: defaultPadAccessory.elements[0]._frame.y },
+  { x: 0, y: 0 },
+  '锁屏 ListWidget 默认 padding 应为 0'
+);
+
+const accessoryCircularLaid = runtime.annotateLayoutTree(
+  await runtime.executeSource({
+    source: accessorySource,
+    scriptId: 'accessory-lab',
+    family: 'accessoryCircular',
+    appearance: 'light',
+    now: fixedNow,
+  }),
+  { now: fixedNow, size: { width: 76, height: 76 }, family: 'accessoryCircular' }
+);
+assert.deepEqual(
+  accessoryCircularLaid.elements[0]._frame,
+  { x: 10, y: 10, width: 56, height: 56 },
+  'accessoryCircular 无 Spacer 时应在圆形容器内垂直水平居中'
+);
+
+const workHelperSourceForM6 = await readFile(new URL('../dist/work-helper.js', import.meta.url), 'utf8');
+const workHelperMediumLaid = runtime.annotateLayoutTree(
+  await runtime.executeSource({
+    source: workHelperSourceForM6,
+    scriptId: 'work-helper',
+    family: 'medium',
+    appearance: 'light',
+    now: new Date('2026-07-27T15:30:00+08:00'),
+  }),
+  { now: new Date('2026-07-27T15:30:00+08:00'), size: { width: 338, height: 158 }, family: 'medium' }
+);
+const workHeroDate = workHelperMediumLaid.elements[2].elements[0].elements[2];
+assert.equal(workHeroDate._lines.length, 1, 'work-helper 中号主倒计时应在垂直空间受限时按 minimumScaleFactor 单行收敛');
+assert.ok(workHeroDate._fontScale < 32 && workHeroDate._fontScale >= 19.2, 'work-helper 中号主倒计时应触发等比缩字号');
+assert.ok(workHelperMediumLaid.elements[6]._frame.y + workHelperMediumLaid.elements[6]._frame.height <= 144.5, 'work-helper 中号底部进度文案不应溢出 158pt 容器');
 assert.match(previewHTML, /id="build-widget-count">-- WIDGETS/);
 assert.match(previewHTML, /id="widget-count">--</);
 assert.deepEqual(

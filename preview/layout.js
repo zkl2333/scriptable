@@ -13,10 +13,12 @@
 (function initializeScriptablePreviewLayout(global) {
   'use strict';
 
-  const SPACER_DEFAULT_MIN = 8; // 系统默认间距（待真机 M6 定标）
-  const LINE_HEIGHT_RATIO = 1.16; // 与 .sp-text 的 line-height 一致
+  const SPACER_DEFAULT_MIN = 8; // iOS 27.2 SwiftUI Spacer() 实测最小长度 8pt
+  const LINE_HEIGHT_RATIO = 1.1934; // iOS 27.2 CoreText/UIFont 实测 1222/1024 ≈ 1.1934
   const IMAGE_FALLBACK_SIZE = 16;
   const WIDGET_CORNER_RADIUS = 22;
+  const DEFAULT_HOME_PADDING = Object.freeze({ top: 16, right: 16, bottom: 16, left: 16 });
+  const ZERO_PADDING = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0 });
 
   const finiteOrNull = (value) => (Number.isFinite(value) ? value : null);
   const round = (value) => Math.round(value * 100) / 100;
@@ -94,12 +96,25 @@
 
   const createLayoutEngine = ({
     measure,
+    truncateText = null,
     wrapText = null,
     measureTextBlock = null,
     defaultFontSize = 15,
   }) => {
     const fontSizeOf = (font) => (Number(font?.size) > 0 ? Number(font.size) : defaultFontSize);
     const lineHeightOf = (font) => fontSizeOf(font) * LINE_HEIGHT_RATIO;
+
+    const resolveTruncate = (text, font, maxWidth) => {
+      if (typeof truncateText === 'function') {
+        return truncateText(text, font, maxWidth);
+      }
+      const raw = String(text ?? '');
+      const fullWidth = Math.max(0, measure(raw, font));
+      if (!Number.isFinite(maxWidth) || fullWidth <= maxWidth + 0.01) {
+        return { text: raw, width: fullWidth, truncated: false };
+      }
+      return { text: raw, width: Math.max(0, maxWidth), truncated: true };
+    };
 
     // 兜底文本块测量（若调用方仅注入了旧版 measure 函数）
     const resolveTextBlock = (text, font, options = {}) => {
@@ -113,14 +128,15 @@
       const maxWidth = Number.isFinite(options.maxWidth) ? options.maxWidth : Infinity;
       if (options.singleLine) {
         const ideal = Math.max(0, measure(raw, font));
+        const trunc = resolveTruncate(raw, font, maxWidth);
         return {
-          lines: [raw],
-          width: Math.min(ideal, maxWidth),
+          lines: [trunc.text],
+          width: trunc.width,
           idealWidth: ideal,
           height: lh,
           fontSize: baseSize,
           scaled: false,
-          truncated: ideal > maxWidth + 0.01,
+          truncated: trunc.truncated,
         };
       }
       const paragraphs = raw.split(/\r?\n/);
@@ -144,7 +160,13 @@
       };
     };
 
-    const stackPadding = (node) => node.padding || { top: 0, right: 0, bottom: 0, left: 0 };
+    const stackPadding = (node, family = null) => {
+      if (node.padding) return node.padding;
+      if (node.type === 'list') {
+        return String(family || '').startsWith('accessory') ? ZERO_PADDING : DEFAULT_HOME_PADDING;
+      }
+      return ZERO_PADDING;
+    };
     const stackGap = (node) => (Number(node.spacing) > 0 ? Number(node.spacing) : 0);
     // border-box：边框与内边距一样侵占内容空间，两轴各 2×borderWidth
     const stackBorder = (node) => (Number(node.borderWidth) > 0 ? Number(node.borderWidth) : 0);
@@ -165,10 +187,10 @@
     const controlSize = (node) => {
       if (node.type === 'toggle') {
         const titleWidth = Math.max(0, measure(node.title || '', { size: 11, weight: 500, family: 'system' }));
-        return { width: round(titleWidth + 42), height: 24 };
+        return { width: round(titleWidth + 51), height: 24 };
       }
       const titleWidth = Math.max(0, measure(node.title || '', { size: 11, weight: 600, family: 'system' }));
-      const extra = node.type === 'refreshButton' ? 28 : 20;
+      const extra = node.type === 'refreshButton' ? 33 : 20;
       return { width: round(titleWidth + extra), height: 24 };
     };
 
@@ -201,6 +223,7 @@
           const singleLine = parentDirection === 'horizontal' || lineLimit === 1;
           const block = resolveTextBlock(text, font, {
             maxWidth: pw ?? Infinity,
+            maxHeight: ph ?? Infinity,
             lineLimit,
             minimumScaleFactor: node.styling?.minimumScaleFactor,
             singleLine,
@@ -225,6 +248,22 @@
           const innerH = targetH != null ? Math.max(0, targetH - vertChrome(node, pad)) : null;
 
           if (direction === 'vertical') {
+            if (innerH != null) {
+              const items = children.map((child) => probe(child, 'vertical', 'vertical', innerW, formatText));
+              const availMain = Math.max(0, innerH - gap * Math.max(0, children.length - 1));
+              const allocated = allocateMain(items, availMain, true);
+              let totalH = vertChrome(node, pad) + gap * Math.max(0, children.length - 1);
+              let maxW = 0;
+              children.forEach((child, idx) => {
+                const childSize = sizeThatFits(child, { width: innerW, height: allocated[idx] }, 'vertical', formatText);
+                totalH += childSize.height;
+                if (childSize.width > maxW) maxW = childSize.width;
+              });
+              return {
+                width: targetW ?? (maxW + horizChrome(node, pad)),
+                height: fh ?? totalH,
+              };
+            }
             let totalH = vertChrome(node, pad) + gap * Math.max(0, children.length - 1);
             let maxW = 0;
             for (const child of children) {
@@ -240,7 +279,7 @@
 
           const items = children.map((child) => probe(child, 'horizontal', 'horizontal', innerH, formatText));
           const availMain = innerW != null ? Math.max(0, innerW - gap * Math.max(0, children.length - 1)) : Infinity;
-          const allocated = allocateMain(items, availMain);
+          const allocated = allocateMain(items, availMain, true);
           let maxH = 0;
           children.forEach((child, idx) => {
             const childSize = sizeThatFits(child, { width: allocated[idx], height: innerH }, 'horizontal', formatText);
@@ -285,38 +324,47 @@
         case 'date': {
           const font = node.styling?.font || null;
           const text = formatText(node);
-          const minWidth = Math.max(0, measure('…', font));
           const lh = lineHeightOf(font);
           const lineLimit = Number(node.styling?.lineLimit) > 0 ? Number(node.styling.lineLimit) : Infinity;
+          const factor = Number(node.styling?.minimumScaleFactor);
+          const hasScale = Number.isFinite(factor) && factor > 0 && factor < 1;
 
           if (axis === 'horizontal') {
             const idealWidth = Math.max(0, measure(text, font));
-            const item = { min: minWidth, ideal: idealWidth, cross: lh };
-            const factor = Number(node.styling?.minimumScaleFactor);
-            if (Number.isFinite(factor) && factor > 0 && factor < 1) {
-              const baseSize = fontSizeOf(font);
-              const minSize = baseSize * factor;
-              const widthAt = (size) => Math.max(0, measure(text, font ? { ...font, size } : { size }));
-              item.take = (proposal) => {
-                if (idealWidth <= proposal) return idealWidth;
-                if (widthAt(minSize) >= proposal) {
-                  item.pendingScale = minSize;
-                  return proposal;
+            // iOS 27.2 SwiftUI Text.sizeThatFits(.zero) = 0
+            const item = { min: 0, ideal: idealWidth, cross: lh };
+            const baseSize = fontSizeOf(font);
+            const widthAt = (size) => Math.max(0, measure(text, font ? { ...font, size } : { size }));
+            item.take = (proposal) => {
+              if (idealWidth <= proposal + 0.01) return idealWidth;
+              if (hasScale) {
+                const minSize = baseSize * factor;
+                if (widthAt(minSize) <= proposal + 0.01) {
+                  let low = minSize;
+                  let high = baseSize;
+                  for (let iteration = 0; iteration < 16; iteration += 1) {
+                    const mid = (low + high) / 2;
+                    if (widthAt(mid) <= proposal + 0.01) low = mid;
+                    else high = mid;
+                  }
+                  item.pendingScale = low;
+                  item.pendingLines = [text];
+                  return Math.min(widthAt(low), proposal);
                 }
-                let low = minSize;
-                let high = baseSize;
-                for (let iteration = 0; iteration < 16; iteration += 1) {
-                  const mid = (low + high) / 2;
-                  if (widthAt(mid) <= proposal) low = mid;
-                  else high = mid;
-                }
-                item.pendingScale = low;
-                return Math.min(widthAt(low), proposal);
-              };
-              item.finalize = () => {
-                if (item.pendingScale) node._fontScale = round(item.pendingScale);
-              };
-            }
+                const scaledFont = font ? { ...font, size: minSize } : { size: minSize };
+                const trunc = resolveTruncate(text, scaledFont, proposal);
+                item.pendingScale = minSize;
+                item.pendingLines = [trunc.text];
+                return trunc.width;
+              }
+              const trunc = resolveTruncate(text, font, proposal);
+              item.pendingLines = [trunc.text];
+              return trunc.width;
+            };
+            item.finalize = () => {
+              if (item.pendingScale) node._fontScale = round(item.pendingScale);
+              if (item.pendingLines) node._lines = item.pendingLines;
+            };
             return item;
           }
 
@@ -328,8 +376,9 @@
             minimumScaleFactor: node.styling?.minimumScaleFactor,
             singleLine: lineLimit === 1,
           });
+          const minHeight = hasScale ? Math.min(lh * factor, block.height) : Math.min(lh, block.height);
           return {
-            min: Math.min(lh, block.height),
+            min: minHeight,
             ideal: block.height,
             cross: block.width,
             textBlock: block,
@@ -398,11 +447,21 @@
 
       if (axis === 'vertical' && finiteOrNull(crossHint) != null) {
         const fitted = sizeThatFits(node, { width: crossHint, height: null }, 'vertical', formatText);
-        return {
-          min: fitted.height,
+        const fittedMin = sizeThatFits(node, { width: crossHint, height: 0 }, 'vertical', formatText);
+        const minH = Math.min(fitted.height, fittedMin.height);
+        const item = {
+          min: minH,
           ideal: fitted.height,
           cross: fitted.width,
         };
+        if (fitted.height - minH > 0.01) {
+          item.take = (proposal) => {
+            if (fitted.height <= proposal + 0.01) return fitted.height;
+            const atProposal = sizeThatFits(node, { width: crossHint, height: proposal }, 'vertical', formatText);
+            return Math.max(minH, Math.min(fitted.height, atProposal.height));
+          };
+        }
+        return item;
       }
 
       let minExtent = 0;
@@ -424,7 +483,7 @@
     // ------------------------------------------------------------------
     // allocateMain：SwiftUI StackLayout 主轴分配（灵活性升序 + Spacer 垫底）
     // ------------------------------------------------------------------
-    const allocateMain = (items, L) => {
+    const allocateMain = (items, L, dryRun = false) => {
       if (!Number.isFinite(L)) {
         return items.map((item) => (item.ideal === Infinity ? item.min : item.ideal));
       }
@@ -453,7 +512,9 @@
         result[index] = taken;
         remaining -= taken;
       });
-      items.forEach((item) => item.finalize?.());
+      if (!dryRun) {
+        items.forEach((item) => item.finalize?.());
+      }
       return result;
     };
 
@@ -503,11 +564,16 @@
         const lineLimit = Number(node.styling?.lineLimit) > 0 ? Number(node.styling.lineLimit) : Infinity;
 
         if (parentDirection === 'horizontal') {
-          const info = probe(node, 'horizontal', 'horizontal', crossHint, formatText);
-          const finalHeight = info.cross;
-          const usedWidth = Math.min(info.ideal, mainLength);
-          node._lines = [text];
-          if (mainLength < info.ideal - 0.01) {
+          const idealWidth = Math.max(0, measure(text, font));
+          const effectiveFont = node._fontScale
+            ? (font ? { ...font, size: node._fontScale } : { size: node._fontScale })
+            : font;
+          const finalHeight = lineHeightOf(effectiveFont);
+          const usedWidth = Math.min(idealWidth, mainLength);
+          if (!Array.isArray(node._lines) || node._lines.length === 0) {
+            node._lines = [text];
+          }
+          if (node._fontScale || mainLength < idealWidth - 0.01) {
             node._size = box(mainLength, finalHeight);
             node._frame = frameBox(origin.x, origin.y, mainLength, finalHeight);
             return node._size;
@@ -516,10 +582,12 @@
           return box(usedWidth, finalHeight);
         }
 
-        // 纵向文本：真实断行 + 多行 minimumScaleFactor 缩放
+        // 纵向文本：真实断行 + 宽高双轴 minimumScaleFactor 缩放
         const availW = finiteOrNull(crossHint) ?? Infinity;
+        const availH = Number.isFinite(mainLength) && mainLength > 0 ? mainLength : Infinity;
         const block = resolveTextBlock(text, font, {
           maxWidth: availW,
+          maxHeight: availH,
           lineLimit,
           minimumScaleFactor: node.styling?.minimumScaleFactor,
           singleLine: lineLimit === 1,
@@ -593,11 +661,11 @@
       const innerMain = Number.isFinite(main)
         ? Math.max(0, main - mainPad(node, pad) - gap * Math.max(0, children.length - 1))
         : null;
-      const innerCross = outerCross != null && direction === 'vertical'
+      const innerCross = outerCross != null
         ? Math.max(0, outerCross - crossPad(node, pad))
         : null;
 
-      const items = children.map((child) => probe(child, direction, direction, innerCross, formatText));
+      const items = children.map((child) => probe(child, direction, direction, direction === 'vertical' ? innerCross : null, formatText));
       const allocated = allocateMain(items, innerMain);
 
       const innerOriginX = origin.x + pad.left + border;
@@ -614,7 +682,7 @@
           child,
           direction,
           allocated[index],
-          direction === 'vertical' ? innerCross : null,
+          innerCross,
           childOrigin,
           rootSize,
           formatText
@@ -623,18 +691,27 @@
         cursor += allocated[index] + gap;
       });
 
-      const computedMain = Number.isFinite(main)
-        ? main
-        : allocated.reduce((sum, value) => sum + value, 0) + mainPad(node, pad) + gap * Math.max(0, children.length - 1);
+      const hasFlexSpacer = children.some((child) => child.type === 'spacer' && !Number.isFinite(child.length));
+      const measuredMain = childSizes.reduce(
+        (sum, sz) => sum + (direction === 'horizontal' ? sz.width : sz.height),
+        0
+      ) + mainPad(node, pad) + gap * Math.max(0, children.length - 1);
+      const computedMain = fixedMain(node) != null
+        ? fixedMain(node)
+        : (Number.isFinite(main) && (aligned || hasFlexSpacer))
+          ? main
+          : measuredMain;
 
       // 交叉轴：优先取二维回流后子项的最大实际交叉尺寸
       const measuredCross = childSizes.reduce((max, sz) => {
         const span = direction === 'horizontal' ? sz.height : sz.width;
         return Math.max(max, span);
       }, 0);
-      const computedCross = outerCross != null
-        ? outerCross
-        : Math.max(measuredCross, items.reduce((max, item) => Math.max(max, item.cross), 0)) + crossPad(node, pad);
+      const computedCross = fixedCross(node) != null
+        ? fixedCross(node)
+        : (outerCross != null && direction === 'vertical')
+          ? outerCross
+          : measuredCross + crossPad(node, pad);
 
       const finalSize = direction === 'horizontal'
         ? box(computedMain, computedCross)
@@ -686,7 +763,7 @@
         : { ...cloned, contentDirection: 'vertical' };
 
       const rootSize = { width, height };
-      const pad = stackPadding(prepared);
+      const pad = stackPadding(prepared, family);
       const border = stackBorder(prepared);
       const gap = stackGap(prepared);
       const direction = prepared.contentDirection || 'vertical';
@@ -713,6 +790,15 @@
         layoutNode(child, direction, allocated[index], innerCross, childOrigin, rootSize, formatText);
         cursor += allocated[index] + gap;
       });
+
+      const hasRootFlexSpacer = children.some((child) => child.type === 'spacer' && !Number.isFinite(child.length));
+      if (family === 'accessoryCircular' && direction === 'vertical' && !hasRootFlexSpacer && !prepared.alignment) {
+        const usedMain = allocated.reduce((sum, v) => sum + v, 0) + gap * Math.max(0, children.length - 1);
+        const dy = Math.max(0, (innerMain - usedMain) / 2);
+        if (dy > 0) {
+          children.forEach((child) => shiftSubtree(child, 0, dy));
+        }
+      }
 
       prepared._size = box(width, height);
       prepared._frame = frameBox(0, 0, width, height);
