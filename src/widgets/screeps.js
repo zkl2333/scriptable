@@ -70,10 +70,23 @@ const isDarkMode = () =>
     ? Device.isUsingDarkAppearance()
     : true;
 
+const readKeychain = (key) => {
+  try {
+    return Keychain.contains(key) ? Keychain.get(key) : '';
+  } catch {
+    return '';
+  }
+};
+
+const writeKeychain = (key, value) => {
+  if (value) Keychain.set(key, value);
+  else if (Keychain.contains(key)) Keychain.remove(key);
+};
+
 const getConfig = () => ({
-  token: Keychain.get(KC_TOKEN),
-  shard: (Keychain.get(KC_SHARD) || '').trim(),
-  rooms: (Keychain.get(KC_ROOMS) || '')
+  token: readKeychain(KC_TOKEN).trim(),
+  shard: readKeychain(KC_SHARD).trim(),
+  rooms: readKeychain(KC_ROOMS)
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean),
@@ -546,17 +559,18 @@ const configure = async () => {
   const alert = new Alert();
   alert.title = '配置 Screeps 帝国面板';
   alert.message = '填入 Auth Token 即自动识别全部分片、核弹、安全模式、能量与余额。';
-  alert.addTextField('Auth Token', Keychain.get(KC_TOKEN) || '');
-  alert.addTextField('Shards（留空自动发现，如 shard2,shard3,shardX）', Keychain.get(KC_SHARD) || '');
-  alert.addTextField('房间（留空自动获取，可用 shard2:E43N29 格式）', Keychain.get(KC_ROOMS) || '');
+  alert.addTextField('Auth Token', readKeychain(KC_TOKEN));
+  alert.addTextField('Shards（留空自动发现，如 shard2,shard3,shardX）', readKeychain(KC_SHARD));
+  alert.addTextField('房间（留空自动获取，可用 shard2:E43N29 格式）', readKeychain(KC_ROOMS));
   alert.addAction('保存');
   alert.addCancelAction('取消');
-  if ((await alert.present()) < 0) return false;
+  if ((await alert.presentAlert()) < 0) return false;
   const token = alert.textFieldValue(0).trim();
   if (!token) return false;
-  Keychain.set(KC_TOKEN, token);
-  Keychain.set(KC_SHARD, alert.textFieldValue(1).trim());
-  Keychain.set(KC_ROOMS, alert.textFieldValue(2).trim());
+  writeKeychain(KC_TOKEN, token);
+  writeKeychain(KC_SHARD, alert.textFieldValue(1).trim());
+  writeKeychain(KC_ROOMS, alert.textFieldValue(2).trim());
+  writeCache(cacheSignature(getConfig()), { snapshot: null, directory: null, rooms: null, cooldownUntil: 0 });
   return true;
 };
 

@@ -22,8 +22,14 @@ assert.match(source, /#8060b0/); // accent purple
 assert.match(source, /#4ecdc4/); // cyan accent
 assert.match(source, /#ffe66d/); // energy yellow
 
-// Keychain keys for credentials
+// Keychain keys & safe Keychain.contains guard
 assert.match(source, /KC_TOKEN/);
+assert.match(source, /Keychain\.contains\(key\)\s*\?\s*Keychain\.get\(key\)/);
+assert.equal(
+  (source.match(/Keychain\.get\(/g) || []).length,
+  1,
+  '所有 Keychain.get 必须通过 readKeychain 守卫，避免真机空键抛错'
+);
 
 // API endpoints & menu integration used
 assert.match(source, /auth\/me/);
