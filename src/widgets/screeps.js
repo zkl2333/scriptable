@@ -72,7 +72,7 @@ const isDarkMode = () =>
 
 const readKeychain = (key) => {
   try {
-    return Keychain.contains(key) ? Keychain.get(key) : '';
+    return Keychain.contains(key) ? String(Keychain.get(key) ?? '') : '';
   } catch {
     return '';
   }
@@ -555,6 +555,14 @@ const drawBar = (value, colorHex, width, height = 4) => {
   return ctx.getImage();
 };
 
+const readAlertField = (alert, index) => {
+  try {
+    return String(alert.textFieldValue(index) ?? '').trim();
+  } catch {
+    return '';
+  }
+};
+
 const configure = async () => {
   const alert = new Alert();
   alert.title = '配置 Screeps 帝国面板';
@@ -564,13 +572,28 @@ const configure = async () => {
   alert.addTextField('房间（留空自动获取，可用 shard2:E43N29 格式）', readKeychain(KC_ROOMS));
   alert.addAction('保存');
   alert.addCancelAction('取消');
-  if ((await alert.presentAlert()) < 0) return false;
-  const token = alert.textFieldValue(0).trim();
-  if (!token) return false;
+  if ((await alert.presentAlert()) !== 0) return false;
+  const token = readAlertField(alert, 0);
+  if (!token) {
+    const tip = new Alert();
+    tip.title = '未保存配置';
+    tip.message = 'Auth Token 不能为空，请重新输入。';
+    tip.addAction('好');
+    await tip.presentAlert();
+    return false;
+  }
   writeKeychain(KC_TOKEN, token);
-  writeKeychain(KC_SHARD, alert.textFieldValue(1).trim());
-  writeKeychain(KC_ROOMS, alert.textFieldValue(2).trim());
+  writeKeychain(KC_SHARD, readAlertField(alert, 1));
+  writeKeychain(KC_ROOMS, readAlertField(alert, 2));
   writeCache(cacheSignature(getConfig()), { snapshot: null, directory: null, rooms: null, cooldownUntil: 0 });
+  const done = new Alert();
+  done.title = '配置已保存';
+  done.message = '返回主屏幕刷新组件，或点击下方立即预览。';
+  done.addAction('立即预览');
+  done.addCancelAction('完成');
+  if ((await done.presentAlert()) === 0) {
+    await presentWidgetPreviews(createWidget, ['medium']);
+  }
   return true;
 };
 

@@ -24,11 +24,16 @@ assert.match(source, /#ffe66d/); // energy yellow
 
 // Keychain keys & safe Keychain.contains guard
 assert.match(source, /KC_TOKEN/);
-assert.match(source, /Keychain\.contains\(key\)\s*\?\s*Keychain\.get\(key\)/);
+assert.match(source, /Keychain\.contains\(key\)\s*\?\s*(?:String\()?Keychain\.get\(key\)/);
 assert.equal(
   (source.match(/Keychain\.get\(/g) || []).length,
   1,
   '所有 Keychain.get 必须通过 readKeychain 守卫，避免真机空键抛错'
+);
+assert.doesNotMatch(
+  source,
+  /textFieldValue\(\d+\)\.trim\(/,
+  'Alert.textFieldValue 在 iOS 空输入时可能返回 null，禁止直接链式 .trim()'
 );
 
 // API endpoints & menu integration used
