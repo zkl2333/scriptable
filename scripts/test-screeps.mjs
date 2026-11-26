@@ -40,4 +40,64 @@ assert.match(dist, /@script-id screeps/);
 assert.match(dist, /@version 1\.0\.0/);
 assert.match(dist, /raw\.githubusercontent\.com\/zkl2333\/scriptable\/main\/dist\/screeps\.js/);
 
-console.log('screeps source and distribution metadata passed');
+// Runtime multi-family & Grafana stats compatibility checks
+await import('../preview/core.js');
+await import('../preview/symbols.js');
+await import('../preview/ir.js');
+await import('../preview/measure.js');
+await import('../preview/layout.js');
+await import('../preview/runtime.js');
+await import('../src/widgets/screeps.mock.js');
+
+const core = globalThis.ScriptablePreviewCore;
+const runtime = globalThis.ScriptablePreviewRuntime;
+const baseMock = globalThis.ScriptablePreviewMocks.screeps;
+
+for (const { id: family } of core.families) {
+  for (const appearance of ['light', 'dark']) {
+    const tree = await runtime.executeSource({
+      source: dist,
+      scriptId: 'screeps',
+      family,
+      appearance,
+    });
+    const html = runtime.renderWidgetTree(tree);
+    assert.doesNotMatch(html, /undefined|NaN|数据暂时不可用/);
+    if (family === 'accessoryCircular') {
+      assert.match(html, /81%/);
+      assert.match(html, /CPU/);
+    } else {
+      assert.match(html, /SCREEPS/);
+    }
+    if (family === 'medium' || family === 'large' || family === 'extraLarge') {
+      assert.match(html, /E43N29/);
+      assert.match(html, /R8/);
+      assert.match(html, /56\.8\/70/);
+    }
+    if (family === 'extraLargePortrait') {
+      assert.match(html, /STORAGE &amp; RCL|STORAGE & RCL/);
+    }
+  }
+}
+
+// Fallback check when Grafana Memory.stats is absent
+const fallbackMock = {
+  ...baseMock,
+  respond(url) {
+    if (url.includes('path=stats')) return { ok: 1, data: null };
+    return baseMock.respond(url);
+  },
+};
+const fallbackTree = await runtime.executeSource({
+  source: dist,
+  scriptId: 'screeps',
+  family: 'medium',
+  appearance: 'dark',
+  mockData: fallbackMock,
+});
+const fallbackHtml = runtime.renderWidgetTree(fallbackTree);
+assert.doesNotMatch(fallbackHtml, /undefined|NaN|数据暂时不可用/);
+assert.match(fallbackHtml, /56\.8\/70/);
+assert.match(fallbackHtml, /E43N29/);
+
+console.log('screeps source, distribution, and multi-family runtime tests passed');
