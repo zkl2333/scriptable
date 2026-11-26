@@ -137,8 +137,8 @@ var toggleTransparentBackground = (scriptId) => {
   setTransparentEnabled(scriptId, next);
   return next;
 };
-var applyTransparentBackground = (widget, scriptId, { isAccessory: isAccessory2 = false, force = null } = {}) => {
-  if (!widget || isAccessory2) return false;
+var applyTransparentBackground = (widget, scriptId, { isAccessory = false, force = null } = {}) => {
+  if (!widget || isAccessory) return false;
   const enabled = force === null ? isTransparentEnabled(scriptId) : Boolean(force);
   if (!enabled) return false;
   widget.backgroundStyle = "transparent";
@@ -355,13 +355,13 @@ var selectPreviewFamilies = async (families) => {
   const index = await alert.presentSheet();
   return choices[index]?.families || null;
 };
-var presentWidgetPreviews = async (createWidget, families) => {
+var presentWidgetPreviews = async (createWidget2, families) => {
   const previewFamilies = normalizePreviewFamilies(families);
   const presented = [];
   const failures = [];
   for (const family of previewFamilies) {
     try {
-      await presentWidget(await createWidget(family), family);
+      await presentWidget(await createWidget2(family), family);
       presented.push(family);
     } catch (error) {
       failures.push({ family, error });
@@ -429,24 +429,23 @@ var KC_TOKEN = `${ID}.token`;
 var KC_SHARD = `${ID}.shard`;
 var KC_ROOMS = `${ID}.rooms`;
 var BASE_URL = "https://screeps.com/api";
-var F = config.widgetFamily || "medium";
-var isAccessory = ACCESSORY_FAMILIES.includes(F);
 var dyn = (light, dark) => Color.dynamic(new Color(light), new Color(dark));
 var C = {
   bgTop: dyn("#F7F8FC", "#101020"),
   bgBottom: dyn("#ECEFF7", "#16182C"),
   pill: dyn("#E7E9F4", "#201040"),
-  surface: dyn("#FFFFFF", "#181A30"),
+  pillText: dyn("#593B93", "#C4A8F5"),
   line: dyn("#DCE1EE", "#282B48"),
   text: dyn("#141724", "#F1F3FA"),
   sub: dyn("#4A5268", "#AEB6CC"),
   muted: dyn("#7E879D", "#767F98"),
   purple: dyn("#65469E", "#8060b0"),
-  pillText: dyn("#593B93", "#C4A8F5"),
   cyan: dyn("#0E8A85", "#4ecdc4"),
   yellow: dyn("#B87300", "#ffe66d"),
   red: dyn("#C9364B", "#FF6E7F"),
   green: dyn("#158054", "#58D69B"),
+  alertBg: dyn("#FDECEF", "#3B1622"),
+  safeBg: dyn("#E6F7EE", "#133528"),
   accessory: dyn("#111111", "#FFFFFF"),
   accessoryTrack: Color.dynamic(new Color("#111111", 0.2), new Color("#FFFFFF", 0.24))
 };
@@ -472,7 +471,7 @@ var formatMoney = (n) => {
 };
 var formatCompact = (n) => {
   const v = Number(n) || 0;
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
   if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
   return `${Math.round(v)}`;
 };
@@ -547,13 +546,13 @@ var bar = (p, value, color = C.cyan, width = 100, thickness = 4, trackColor = C.
     return s;
   }
 });
-var makeEmblem = () => {
+var makeEmblem = (hexOverride = null) => {
   const size = 14;
   const ctx = new DrawContext();
   ctx.size = new Size(size, size);
   ctx.opaque = false;
   const isDark = typeof Device !== "undefined" && Device.isUsingDarkAppearance ? Device.isUsingDarkAppearance() : true;
-  const color = isDark ? "#4ecdc4" : "#0E8A85";
+  const color = hexOverride || (isDark ? "#4ecdc4" : "#0E8A85");
   const r = 5.4;
   const cx = size / 2;
   const cy = size / 2;
@@ -624,7 +623,7 @@ var makeSparkline = (series, limit, width, height) => {
 var configure = async () => {
   const alert = new Alert();
   alert.title = "配置 Screeps 帝国面板";
-  alert.message = "填入 Auth Token 即自动识别所有活跃 Shard 与房间；也可手动覆盖分片（逗号分隔）。";
+  alert.message = "填入 Auth Token 即自动识别全部分片、核弹、安全模式、能量与余额。";
   alert.addTextField("Auth Token", Keychain.get(KC_TOKEN) || "");
   alert.addTextField("Shards（留空自动发现，如 shard2,shard3,shardX）", Keychain.get(KC_SHARD) || "");
   alert.addTextField("房间（留空自动获取，可用 shard2:E43N29 格式）", Keychain.get(KC_ROOMS) || "");
@@ -650,11 +649,53 @@ var parseManualRooms = (entries, fallbackShard) => {
   }
   return byShard;
 };
+var parseNuker = (nuker, gameTime) => {
+  if (!nuker) return null;
+  const energy = Number(nuker.store?.energy ?? nuker.energy ?? 0);
+  const ghodium = Number(nuker.store?.G ?? nuker.G ?? 0);
+  const cdTicks = nuker.cooldownTime && gameTime ? Math.max(0, nuker.cooldownTime - gameTime) : 0;
+  const ready = energy >= 3e5 && ghodium >= 5e3 && cdTicks === 0;
+  const fillPct = Math.round(Math.min(1, Math.min(energy / 3e5, ghodium / 5e3)) * 100);
+  return { energy, ghodium, cdTicks, ready, fillPct };
+};
+var parseRoomObjects = (room, shard, objectsRes, gameTime, gStats, shardIncomingNukes) => {
+  const objects = Array.isArray(objectsRes?.objects) ? objectsRes.objects : [];
+  const ctrl = objects.find((o) => o.type === "controller") || null;
+  const storage = objects.find((o) => o.type === "storage") || null;
+  const terminal = objects.find((o) => o.type === "terminal") || null;
+  const nukerObj = objects.find((o) => o.type === "nuker") || null;
+  const spawnsAndExt = objects.filter((o) => o.type === "spawn" || o.type === "extension");
+  const prefix = `room.${room}.`;
+  const storageEnergy = Number(storage?.store?.energy ?? storage?.energy ?? gStats?.[`${prefix}storageEnergy`] ?? 0);
+  const terminalEnergy = Number(terminal?.store?.energy ?? terminal?.energy ?? gStats?.[`${prefix}terminalEnergy`] ?? 0);
+  const energyAvail = spawnsAndExt.length ? spawnsAndExt.reduce((sum, o) => sum + Number(o.store?.energy ?? o.energy ?? 0), 0) : Number(gStats?.[`${prefix}energyAvailable`] ?? 0);
+  const energyCap = spawnsAndExt.length ? spawnsAndExt.reduce((sum, o) => sum + Number(o.storeCapacityResource?.energy ?? o.energyCapacity ?? 0), 0) : Number(gStats?.[`${prefix}energyCapacityAvailable`] ?? 0);
+  const safeModeRemaining = ctrl?.safeMode && gameTime ? Math.max(0, ctrl.safeMode - gameTime) : ctrl?.safeMode ? 1 : 0;
+  const safeModeAvailable = Number(ctrl?.safeModeAvailable ?? 0);
+  const safeModeCooldown = ctrl?.safeModeCooldown && gameTime ? Math.max(0, ctrl.safeModeCooldown - gameTime) : 0;
+  const nuker = parseNuker(nukerObj, gameTime);
+  const incomingNukes = shardIncomingNukes.filter((n) => n.room === room);
+  return {
+    shard,
+    room,
+    rcl: Number(ctrl?.level ?? gStats?.[`${prefix}controllerLevel`] ?? 0),
+    storageEnergy,
+    terminalEnergy,
+    totalEnergy: storageEnergy + terminalEnergy,
+    energyAvailable: energyAvail,
+    energyCapacity: energyCap,
+    safeModeRemaining,
+    safeModeAvailable,
+    safeModeCooldown,
+    nuker,
+    incomingNukes
+  };
+};
 var loadData = async (cfg) => {
   const me = await api("auth/me", cfg);
-  const [userRoomsRes, shardInfoRes] = await Promise.all([
+  const [userRoomsRes, nukesRes] = await Promise.all([
     me?._id ? api(`user/rooms?id=${encodeURIComponent(me._id)}`, cfg).catch(() => null) : Promise.resolve(null),
-    api("game/shards/info", cfg).catch(() => null)
+    api("experimental/nukes", cfg).catch(() => null)
   ]);
   const cpuMap = me?.cpuShard || {};
   const apiRoomsByShard = userRoomsRes?.shards || {};
@@ -671,17 +712,13 @@ var loadData = async (cfg) => {
   if (!discovered.size) discovered.add("shard2");
   const activeShards = [...discovered].sort((a, b) => (Number(cpuMap[b]) || 0) - (Number(cpuMap[a]) || 0));
   const manualRoomsMap = parseManualRooms(cfg.rooms, activeShards[0]);
-  const shardTickMap = {};
-  (shardInfoRes?.shards || []).forEach((s) => {
-    if (s?.name) shardTickMap[s.name] = s.tick;
-  });
   const shardDetails = await Promise.all(
     activeShards.map(async (shardName) => {
-      const [cpuRes, limitRes, bucketRes, deltaRes, creepsRes, statsRes] = await Promise.all([
+      const [timeRes, cpuRes, limitRes, bucketRes, creepsRes, statsRes] = await Promise.all([
+        api(`game/time?shard=${encodeURIComponent(shardName)}`, cfg).catch(() => null),
         memory("history.cpu_total", shardName, cfg).catch(() => null),
         memory("history.cpu_limit", shardName, cfg).catch(() => null),
         memory("history.bucket", shardName, cfg).catch(() => null),
-        memory("history.bucket_delta", shardName, cfg).catch(() => null),
         memory("history.creeps", shardName, cfg).catch(() => null),
         memory("stats", shardName, cfg).catch(() => null)
       ]);
@@ -690,18 +727,16 @@ var loadData = async (cfg) => {
       const cpuVal = gStats?.["cpu.used"] ?? latestAverage(cpuRes, 0);
       const limitVal = gStats?.["cpu.limit"] ?? latestAverage(limitRes, null) ?? cpuMap[shardName] ?? me?.cpu ?? 20;
       const bucketVal = gStats?.["cpu.bucket"] ?? latestAverage(bucketRes, 0);
-      const deltaVal = latestAverage(deltaRes, null);
       const creepsVal = gStats?.creeps ?? latestAverage(creepsRes, 0);
       const roomNames = manualRoomsMap[shardName] || apiRoomsByShard[shardName] || [];
       return {
         shard: shardName,
+        gameTime: Number(timeRes?.time) || 0,
         cpu: Number(cpuVal) || 0,
         cpuLimit: Number(limitVal) || 0,
         ratio: limitVal > 0 ? (Number(cpuVal) || 0) / limitVal : 0,
         bucket: Number(bucketVal) || 0,
-        bucketDelta: Number.isFinite(Number(deltaVal)) ? Number(deltaVal) : null,
         creeps: Number(creepsVal) || 0,
-        tickMs: shardTickMap[shardName] || null,
         cpuSeries: extractSeries(cpuRes),
         roomNames,
         gStats,
@@ -709,39 +744,39 @@ var loadData = async (cfg) => {
       };
     })
   );
+  const rawNukesByShard = nukesRes?.nukes && !Array.isArray(nukesRes.nukes) ? nukesRes.nukes : {};
   const roomTargets = [];
   const maxShardRooms = Math.max(0, ...shardDetails.map((s) => s.roomNames.length));
   for (let idx = 0; idx < maxShardRooms; idx += 1) {
     for (const sd of shardDetails) {
-      if (sd.roomNames[idx]) {
-        roomTargets.push({ shard: sd.shard, room: sd.roomNames[idx], gStats: sd.gStats });
-      }
+      if (sd.roomNames[idx]) roomTargets.push({ sd, room: sd.roomNames[idx] });
     }
   }
   const rooms = await Promise.all(
-    roomTargets.slice(0, 9).map(async ({ shard, room, gStats }) => {
-      const overview = await api(
-        `game/room-overview?room=${encodeURIComponent(room)}&interval=8&shard=${encodeURIComponent(shard)}`,
+    roomTargets.slice(0, 12).map(async ({ sd, room }) => {
+      const objectsRes = await api(
+        `game/room-objects?room=${encodeURIComponent(room)}&shard=${encodeURIComponent(sd.shard)}`,
         cfg
-      ).catch(() => ({ totals: {} }));
-      const prefix = `room.${room}.`;
-      return {
-        shard,
-        room,
-        totals: overview?.totals || {},
-        rcl: gStats ? gStats[`${prefix}controllerLevel`] : void 0,
-        rclPercent: gStats ? gStats[`${prefix}controllerProgressPercent`] : void 0,
-        storageEnergy: gStats ? gStats[`${prefix}storageEnergy`] : void 0,
-        terminalEnergy: gStats ? gStats[`${prefix}terminalEnergy`] : void 0,
-        energyAvailable: gStats ? gStats[`${prefix}energyAvailable`] : void 0,
-        energyCapacity: gStats ? gStats[`${prefix}energyCapacityAvailable`] : void 0
-      };
+      ).catch(() => null);
+      const shardNukes = Array.isArray(rawNukesByShard[sd.shard]) ? rawNukesByShard[sd.shard] : [];
+      return parseRoomObjects(room, sd.shard, objectsRes, sd.gameTime, sd.gStats, shardNukes);
     })
   );
+  rooms.sort((a, b) => {
+    const urgA = (a.incomingNukes.length ? 1e3 : 0) + (a.safeModeRemaining ? 500 : 0) + (a.nuker?.ready ? 100 : 0);
+    const urgB = (b.incomingNukes.length ? 1e3 : 0) + (b.safeModeRemaining ? 500 : 0) + (b.nuker?.ready ? 100 : 0);
+    if (urgA !== urgB) return urgB - urgA;
+    return b.totalEnergy - a.totalEnergy;
+  });
+  const nukers = rooms.filter((r) => r.nuker);
+  const nukesReady = nukers.filter((r) => r.nuker.ready).length;
+  const incomingNukes = rooms.flatMap((r) => r.incomingNukes);
+  const activeSafeModes = rooms.filter((r) => r.safeModeRemaining > 0);
+  const totalSafeModeCharges = rooms.reduce((sum, r) => sum + r.safeModeAvailable, 0);
+  const totalEnergy = rooms.reduce((sum, r) => sum + r.totalEnergy, 0);
+  const totalStorageEnergy = rooms.reduce((sum, r) => sum + r.storageEnergy, 0);
+  const totalTerminalEnergy = rooms.reduce((sum, r) => sum + r.terminalEnergy, 0);
   const primaryStats = shardDetails.find((s) => s.gStats)?.gStats || null;
-  rooms.sort(
-    (a, b) => (b.totals?.energyHarvested || 0) + (b.totals?.energyControl || 0) - ((a.totals?.energyHarvested || 0) + (a.totals?.energyControl || 0))
-  );
   const totalCpu = shardDetails.reduce((sum, s) => sum + s.cpu, 0);
   const sumShardLimits = shardDetails.reduce((sum, s) => sum + s.cpuLimit, 0);
   const totalLimit = Number(me?.cpu) || sumShardLimits || 100;
@@ -763,14 +798,33 @@ var loadData = async (cfg) => {
     credits: primaryStats?.credits ?? me?.money ?? 0,
     gclLevel,
     gclRatio,
-    hasGrafanaStats: shardDetails.some((s) => s.hasGrafanaStats)
+    nukerCount: nukers.length,
+    nukesReady,
+    incomingNukeCount: incomingNukes.length,
+    activeSafeModes,
+    totalSafeModeCharges,
+    totalEnergy,
+    totalStorageEnergy,
+    totalTerminalEnergy
   };
 };
 var statusColor = (ratio, bucket = 1e4) => ratio > 0.9 || bucket < 1e3 ? C.red : ratio > 0.75 || bucket < 5e3 ? C.yellow : C.cyan;
+var safeModeText = (room) => {
+  if (room.safeModeRemaining > 0) return `激活 ${formatCompact(room.safeModeRemaining)}t`;
+  if (room.safeModeCooldown > 0) return `冷却 ${formatCompact(room.safeModeCooldown)}t`;
+  return `可用 ×${room.safeModeAvailable}`;
+};
+var nukerText = (room) => {
+  if (room.incomingNukes.length > 0) return `来袭 ×${room.incomingNukes.length}`;
+  if (!room.nuker) return "—";
+  if (room.nuker.ready) return "就绪";
+  if (room.nuker.cdTicks > 0) return `CD ${formatCompact(room.nuker.cdTicks)}`;
+  return `${room.nuker.fillPct}%`;
+};
 var addHeader = (widget, data, compact = false) => {
   const header = widget.addStack();
   header.centerAlignContent();
-  const icon = header.addImage(makeEmblem());
+  const icon = header.addImage(makeEmblem(data.incomingNukeCount > 0 ? "#FF6E7F" : null));
   icon.imageSize = new Size(compact ? 12 : 14, compact ? 12 : 14);
   header.addSpacer(5);
   addText(header, "Screeps", Font.semiboldSystemFont(compact ? 12 : 13), C.text, { lineLimit: 1 });
@@ -785,7 +839,22 @@ var addHeader = (widget, data, compact = false) => {
     );
   }
   header.addSpacer();
-  const right = addRefreshAction(header, {
+  if (!compact && data.incomingNukeCount > 0) {
+    const alertPill = header.addStack();
+    alertPill.backgroundColor = C.alertBg;
+    alertPill.cornerRadius = 6;
+    alertPill.setPadding(2, 6, 2, 6);
+    addText(alertPill, `来袭 ${data.incomingNukeCount}`, Font.boldSystemFont(9), C.red, { lineLimit: 1 });
+    header.addSpacer(6);
+  } else if (!compact && data.activeSafeModes.length > 0) {
+    const safePill = header.addStack();
+    safePill.backgroundColor = C.safeBg;
+    safePill.cornerRadius = 6;
+    safePill.setPadding(2, 6, 2, 6);
+    addText(safePill, `安全模式 ${data.activeSafeModes.length}`, Font.boldSystemFont(9), C.green, { lineLimit: 1 });
+    header.addSpacer(6);
+  }
+  addRefreshAction(header, {
     title: "刷新 Screeps 面板",
     id: "refresh",
     text: compact ? `${data.shards.length}S` : `${Math.round(data.ratio * 100)}%`,
@@ -797,86 +866,93 @@ var addHeader = (widget, data, compact = false) => {
     cornerRadius: 7,
     padding: [3, 7, 3, 7]
   });
-  return right;
 };
-var addInfoCell = (parent, label, value, color = C.text) => {
+var addInfoCell = (parent, label, value, color = C.text, sub = "") => {
   const cell = parent.addStack();
   cell.layoutVertically();
   addText(cell, label, Font.systemFont(9), C.muted, { lineLimit: 1 });
   cell.addSpacer(2);
-  addText(cell, value, Font.semiboldRoundedSystemFont(13), color, { lineLimit: 1, scale: 0.75 });
+  addText(cell, value, Font.semiboldRoundedSystemFont(13), color, { lineLimit: 1, scale: 0.72 });
+  if (sub) {
+    cell.addSpacer(1);
+    addText(cell, sub, Font.regularMonospacedSystemFont(8), C.muted, { lineLimit: 1 });
+  }
   return cell;
 };
-var addShardRow = (parent, s, barW = 54, compact = false) => {
+var addShardBarRow = (parent, s, barW = 72) => {
   const row = parent.addStack();
   row.centerAlignContent();
-  addText(row, shortShard(s.shard), Font.boldMonospacedSystemFont(compact ? 9 : 10), C.sub, { lineLimit: 1 });
-  row.addSpacer(5);
-  bar(row, s.ratio, statusColor(s.ratio, s.bucket), barW, 3);
+  addText(row, shortShard(s.shard), Font.boldMonospacedSystemFont(10), C.sub, { lineLimit: 1 });
+  row.addSpacer(6);
+  bar(row, s.ratio, statusColor(s.ratio, s.bucket), barW, 4);
   row.addSpacer();
-  const limitLabel = s.cpuLimit > 0 ? `/${Math.round(s.cpuLimit)}` : "";
-  addText(row, `${s.cpu.toFixed(compact ? 0 : 1)}${limitLabel}`, Font.semiboldMonospacedSystemFont(compact ? 9 : 10), C.text, {
-    lineLimit: 1,
-    scale: 0.8
-  });
+  addText(
+    row,
+    `${s.cpu.toFixed(1)}/${Math.round(s.cpuLimit)} · B${formatCompact(s.bucket)}`,
+    Font.regularMonospacedSystemFont(9),
+    C.text,
+    { lineLimit: 1 }
+  );
 };
-var addRoomLine = (parent, item, wide = false) => {
+var addRoomMatrixRow = (parent, room, compact = false) => {
   const row = parent.addStack();
   row.centerAlignContent();
   const badge = row.addStack();
   badge.backgroundColor = C.pill;
   badge.cornerRadius = 4;
   badge.setPadding(1, 4, 1, 4);
-  addText(badge, shortShard(item.shard), Font.semiboldMonospacedSystemFont(8), C.pillText, { lineLimit: 1 });
+  addText(badge, shortShard(room.shard), Font.semiboldMonospacedSystemFont(8), C.pillText, { lineLimit: 1 });
   row.addSpacer(5);
-  addText(row, item.room, Font.semiboldMonospacedSystemFont(10), C.text, { lineLimit: 1 });
-  if (item.rcl) {
-    row.addSpacer(4);
-    addText(row, `R${item.rcl}`, Font.mediumMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
-  }
+  addText(row, room.room, Font.semiboldMonospacedSystemFont(10), C.text, { lineLimit: 1 });
+  row.addSpacer(4);
+  addText(row, `R${room.rcl || "-"}`, Font.regularMonospacedSystemFont(8), C.muted, { lineLimit: 1 });
   row.addSpacer();
-  const harvest = formatCompact(item.totals?.energyHarvested || 0);
-  const control = formatCompact(item.totals?.energyControl || 0);
-  if (wide && Number.isFinite(item.storageEnergy)) {
-    addText(row, `+${harvest} · ↑${control}`, Font.regularMonospacedSystemFont(9), C.sub, { lineLimit: 1 });
-    row.addSpacer(8);
-    addText(row, `仓 ${formatCompact(item.storageEnergy)}`, Font.semiboldMonospacedSystemFont(9), C.cyan, {
-      lineLimit: 1
-    });
-  } else {
-    addText(row, `+${harvest}  ↑${control}`, Font.regularMonospacedSystemFont(9), C.sub, { lineLimit: 1 });
-  }
+  const smColor = room.safeModeRemaining > 0 ? C.green : room.safeModeCooldown > 0 ? C.yellow : C.sub;
+  addText(row, safeModeText(room), Font.mediumSystemFont(9), smColor, { lineLimit: 1 });
+  row.addSpacer(compact ? 6 : 8);
+  const nkColor = room.incomingNukes.length > 0 ? C.red : room.nuker?.ready ? C.yellow : C.muted;
+  addText(row, room.nuker || room.incomingNukes.length ? `核${nukerText(room)}` : "无核", Font.mediumSystemFont(9), nkColor, {
+    lineLimit: 1
+  });
+  row.addSpacer(compact ? 6 : 8);
+  addText(row, `⚡${formatCompact(room.totalEnergy)}`, Font.semiboldMonospacedSystemFont(9), C.cyan, {
+    lineLimit: 1
+  });
 };
 var renderSmall = (widget, data) => {
   addHeader(widget, data, true);
   widget.addSpacer(6);
-  const hero = widget.addStack();
-  hero.centerAlignContent();
-  addText(hero, data.cpu.toFixed(1), Font.boldRoundedSystemFont(21), C.cyan, { lineLimit: 1, scale: 0.7 });
-  hero.addSpacer(3);
-  addText(hero, `/${data.cpuLimit}`, Font.mediumRoundedSystemFont(11), C.muted, { lineLimit: 1 });
-  hero.addSpacer();
-  addText(hero, `${Math.round(data.ratio * 100)}%`, Font.semiboldMonospacedSystemFont(10), statusColor(data.ratio, data.bucket), {
-    lineLimit: 1
-  });
+  const cpuRow = widget.addStack();
+  cpuRow.centerAlignContent();
+  addText(cpuRow, data.cpu.toFixed(1), Font.boldRoundedSystemFont(20), C.cyan, { lineLimit: 1, scale: 0.7 });
+  cpuRow.addSpacer(3);
+  addText(cpuRow, `/${data.cpuLimit}`, Font.mediumRoundedSystemFont(11), C.muted, { lineLimit: 1 });
+  cpuRow.addSpacer();
+  addText(cpuRow, `B ${formatCompact(data.bucket)}`, Font.regularMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
   widget.addSpacer(3);
-  const spark = widget.addImage(makeSparkline(data.cpuSeries, data.cpuLimit, 130, 20));
-  spark.imageSize = new Size(130, 20);
-  widget.addSpacer(6);
+  bar(widget, data.ratio, statusColor(data.ratio, data.bucket), 130, 4);
+  widget.addSpacer(7);
   addHDivider(widget);
+  widget.addSpacer(7);
+  const row1 = widget.addStack();
+  addInfoCell(
+    row1,
+    "核弹就绪",
+    data.incomingNukeCount > 0 ? `来袭 ${data.incomingNukeCount}` : `${data.nukesReady}/${data.nukerCount} 枚`,
+    data.incomingNukeCount > 0 ? C.red : data.nukesReady > 0 ? C.yellow : C.text
+  );
+  row1.addSpacer();
+  addInfoCell(
+    row1,
+    "安全模式",
+    data.activeSafeModes.length > 0 ? `开启 ${data.activeSafeModes.length} 房` : `×${data.totalSafeModeCharges} 次`,
+    data.activeSafeModes.length > 0 ? C.green : C.text
+  );
   widget.addSpacer(6);
-  data.shards.slice(0, 3).forEach((s, idx) => {
-    if (idx > 0) widget.addSpacer(4);
-    addShardRow(widget, s, 46, true);
-  });
-  widget.addSpacer();
-  const foot = widget.addStack();
-  foot.centerAlignContent();
-  addText(foot, `GCL ${data.gclLevel}`, Font.semiboldSystemFont(9), C.yellow, { lineLimit: 1 });
-  foot.addSpacer();
-  addText(foot, `${data.totalRooms} 房 · ${Math.round(data.creeps)}c`, Font.mediumSystemFont(9), C.muted, {
-    lineLimit: 1
-  });
+  const row2 = widget.addStack();
+  addInfoCell(row2, "账户余额", formatMoney(data.credits), C.yellow);
+  row2.addSpacer();
+  addInfoCell(row2, "总能量", formatCompact(data.totalEnergy), C.cyan);
 };
 var renderMedium = (widget, data) => {
   addHeader(widget, data, false);
@@ -885,202 +961,192 @@ var renderMedium = (widget, data) => {
   main.centerAlignContent();
   const left = main.addStack();
   left.layoutVertically();
-  left.size = new Size(150, 0);
+  left.size = new Size(144, 0);
   const cpuHead = left.addStack();
   cpuHead.centerAlignContent();
-  addText(cpuHead, "帝国 CPU", Font.systemFont(10), C.muted, { lineLimit: 1 });
+  addText(cpuHead, "CPU 水平", Font.systemFont(10), C.muted, { lineLimit: 1 });
   cpuHead.addSpacer();
-  addText(cpuHead, `GCL ${data.gclLevel} · ${Math.round(data.gclRatio * 100)}%`, Font.mediumSystemFont(9), C.yellow, {
-    lineLimit: 1
-  });
+  addText(cpuHead, `BKT ${formatCompact(data.bucket)}`, Font.regularMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
   left.addSpacer(2);
   const numRow = left.addStack();
   numRow.centerAlignContent();
-  addText(numRow, data.cpu.toFixed(1), Font.boldRoundedSystemFont(21), C.cyan, { lineLimit: 1, scale: 0.7 });
+  addText(numRow, data.cpu.toFixed(1), Font.boldRoundedSystemFont(20), C.cyan, { lineLimit: 1, scale: 0.7 });
   numRow.addSpacer(3);
   addText(numRow, `/ ${data.cpuLimit}`, Font.mediumRoundedSystemFont(11), C.muted, { lineLimit: 1 });
   left.addSpacer(4);
-  const spark = left.addImage(makeSparkline(data.cpuSeries, data.cpuLimit, 150, 22));
-  spark.imageSize = new Size(150, 22);
+  const spark = left.addImage(makeSparkline(data.cpuSeries, data.cpuLimit, 144, 21));
+  spark.imageSize = new Size(144, 21);
   main.addSpacer(12);
-  addVDivider(main, 62);
+  addVDivider(main, 60);
   main.addSpacer(12);
   const right = main.addStack();
   right.layoutVertically();
-  right.size = new Size(134, 0);
-  const shHead = right.addStack();
-  shHead.centerAlignContent();
-  addText(shHead, "分片负载", Font.systemFont(10), C.muted, { lineLimit: 1 });
-  shHead.addSpacer();
-  addText(shHead, `${data.shards.length} Shards`, Font.mediumSystemFont(9), C.muted, { lineLimit: 1 });
+  right.size = new Size(142, 0);
+  const rLine1 = right.addStack();
+  rLine1.centerAlignContent();
+  addText(rLine1, "核弹储备", Font.systemFont(10), C.muted, { lineLimit: 1 });
+  rLine1.addSpacer();
+  const nukeLabel = data.incomingNukeCount > 0 ? `⚠️ 来袭 ${data.incomingNukeCount}` : `${data.nukesReady} / ${data.nukerCount} 就绪`;
+  addText(
+    rLine1,
+    nukeLabel,
+    Font.semiboldRoundedSystemFont(11),
+    data.incomingNukeCount > 0 ? C.red : data.nukesReady > 0 ? C.yellow : C.text,
+    { lineLimit: 1 }
+  );
   right.addSpacer(6);
-  data.shards.slice(0, 3).forEach((s, idx) => {
-    if (idx > 0) right.addSpacer(7);
-    addShardRow(right, s, 44, false);
-  });
+  const rLine2 = right.addStack();
+  rLine2.centerAlignContent();
+  addText(rLine2, "安全模式", Font.systemFont(10), C.muted, { lineLimit: 1 });
+  rLine2.addSpacer();
+  const smText = data.activeSafeModes.length > 0 ? `${data.activeSafeModes[0].room} 激活` : `可用 ×${data.totalSafeModeCharges}`;
+  addText(
+    rLine2,
+    smText,
+    Font.semiboldRoundedSystemFont(11),
+    data.activeSafeModes.length > 0 ? C.green : C.text,
+    { lineLimit: 1 }
+  );
+  right.addSpacer(6);
+  const rLine3 = right.addStack();
+  rLine3.centerAlignContent();
+  addText(rLine3, "分片", Font.systemFont(10), C.muted, { lineLimit: 1 });
+  rLine3.addSpacer();
+  const shardText = data.shards.slice(0, 3).map((s) => `${shortShard(s.shard)}:${Math.round(s.ratio * 100)}%`).join(" ");
+  addText(rLine3, shardText, Font.regularMonospacedSystemFont(9), C.sub, { lineLimit: 1, scale: 0.72 });
   widget.addSpacer(9);
   addHDivider(widget);
   widget.addSpacer(7);
   const strip = widget.addStack();
-  addInfoCell(strip, "信用点", formatMoney(data.credits), C.yellow);
+  addInfoCell(strip, "账户余额", formatMoney(data.credits), C.yellow);
   strip.addSpacer();
-  addInfoCell(strip, "最低 Bucket", formatCompact(data.bucket), statusColor(data.ratio, data.bucket));
+  addInfoCell(strip, "帝国能量", formatCompact(data.totalEnergy), C.cyan);
   strip.addSpacer();
-  addInfoCell(strip, "全军 Creeps", `${Math.round(data.creeps)}`, C.text);
+  addInfoCell(strip, "核弹就绪", `${data.nukesReady}/${data.nukerCount}`, data.nukesReady > 0 ? C.yellow : C.text);
   strip.addSpacer();
-  addInfoCell(strip, "控制房间", `${data.totalRooms}`, C.cyan);
+  addInfoCell(strip, `GCL ${data.gclLevel}`, `${Math.round(data.gclRatio * 100)}%`, C.text);
 };
 var renderLarge = (widget, data, family = "large") => {
   const isXL = family === "extraLarge";
   const isPortrait = family === "extraLargePortrait";
   addHeader(widget, data, false);
   widget.addSpacer(10);
-  const gclRow = widget.addStack();
-  gclRow.centerAlignContent();
-  addText(gclRow, `GCL ${data.gclLevel}`, Font.boldRoundedSystemFont(15), C.text, { lineLimit: 1 });
-  gclRow.addSpacer(10);
-  bar(gclRow, data.gclRatio, C.yellow, isXL ? 540 : 196, 5);
-  gclRow.addSpacer(10);
-  addText(gclRow, `${Math.round(data.gclRatio * 100)}%`, Font.semiboldMonospacedSystemFont(11), C.yellow, {
-    lineLimit: 1
-  });
-  widget.addSpacer(10);
-  addHDivider(widget);
-  widget.addSpacer(10);
   const strip = widget.addStack();
-  addInfoCell(strip, "帝国 CPU", `${data.cpu.toFixed(1)}/${data.cpuLimit}`, C.cyan);
+  addInfoCell(strip, "账户余额", formatMoney(data.credits), C.yellow);
   strip.addSpacer();
-  addInfoCell(strip, "信用点", formatMoney(data.credits), C.yellow);
+  addInfoCell(strip, "帝国能量", formatCompact(data.totalEnergy), C.cyan, `仓 ${formatCompact(data.totalStorageEnergy)}`);
   strip.addSpacer();
-  addInfoCell(strip, "最低 Bucket", formatCompact(data.bucket), statusColor(data.ratio, data.bucket));
+  addInfoCell(
+    strip,
+    "核弹数量",
+    `${data.nukesReady} / ${data.nukerCount}`,
+    data.incomingNukeCount > 0 ? C.red : C.yellow,
+    data.incomingNukeCount > 0 ? `来袭 ${data.incomingNukeCount}` : "0 来袭"
+  );
   strip.addSpacer();
-  addInfoCell(strip, "全军 Creeps", `${Math.round(data.creeps)}`, C.text);
+  addInfoCell(
+    strip,
+    "安全模式",
+    data.activeSafeModes.length > 0 ? `开启 ${data.activeSafeModes.length} 房` : `×${data.totalSafeModeCharges} 次`,
+    data.activeSafeModes.length > 0 ? C.green : C.text,
+    `GCL ${data.gclLevel} · ${Math.round(data.gclRatio * 100)}%`
+  );
+  strip.addSpacer();
+  addInfoCell(
+    strip,
+    "CPU 水平",
+    `${data.cpu.toFixed(1)}/${data.cpuLimit}`,
+    statusColor(data.ratio, data.bucket),
+    `BKT ${formatCompact(data.bucket)}`
+  );
   widget.addSpacer(10);
   addHDivider(widget);
   widget.addSpacer(10);
   const body = widget.addStack();
   if (!isXL) body.layoutVertically();
-  const leftW = isXL ? 326 : 310;
-  const chartH = isXL ? 86 : isPortrait ? 104 : 62;
-  const telemetry = body.addStack();
-  telemetry.layoutVertically();
-  telemetry.size = new Size(leftW, 0);
-  const tHead = telemetry.addStack();
-  tHead.centerAlignContent();
-  addText(tHead, "CPU 趋势 · GRAFANA", Font.semiboldSystemFont(10), C.muted, { lineLimit: 1 });
-  tHead.addSpacer();
-  addText(tHead, `${Math.round(data.ratio * 100)}% LOAD`, Font.semiboldMonospacedSystemFont(10), C.cyan, {
+  const leftW = isXL ? 290 : 310;
+  const chartH = isXL ? 94 : isPortrait ? 90 : 54;
+  const cpuCol = body.addStack();
+  cpuCol.layoutVertically();
+  cpuCol.size = new Size(leftW, 0);
+  const cpuHead = cpuCol.addStack();
+  cpuHead.centerAlignContent();
+  addText(cpuHead, "CPU 水平 · 跨分片实时负载", Font.semiboldSystemFont(10), C.muted, { lineLimit: 1 });
+  cpuHead.addSpacer();
+  addText(cpuHead, `${Math.round(data.ratio * 100)}% LOAD`, Font.semiboldMonospacedSystemFont(10), C.cyan, {
     lineLimit: 1
   });
-  telemetry.addSpacer(6);
-  const spark = telemetry.addImage(makeSparkline(data.cpuSeries, data.cpuLimit, leftW, chartH));
+  cpuCol.addSpacer(5);
+  const spark = cpuCol.addImage(makeSparkline(data.cpuSeries, data.cpuLimit, leftW, chartH));
   spark.imageSize = new Size(leftW, chartH);
-  telemetry.addSpacer(8);
+  cpuCol.addSpacer(7);
   data.shards.slice(0, 4).forEach((s, idx) => {
-    if (idx > 0) telemetry.addSpacer(5);
-    const sRow = telemetry.addStack();
-    sRow.centerAlignContent();
-    addText(sRow, s.shard, Font.semiboldMonospacedSystemFont(10), C.sub, { lineLimit: 1 });
-    sRow.addSpacer(6);
-    addText(sRow, `${s.roomNames.length} 房`, Font.systemFont(9), C.muted, { lineLimit: 1 });
-    sRow.addSpacer(8);
-    bar(sRow, s.ratio, statusColor(s.ratio, s.bucket), isXL ? 110 : 104, 4);
-    sRow.addSpacer();
-    addText(sRow, `${s.cpu.toFixed(1)}/${s.cpuLimit} · B ${formatCompact(s.bucket)}`, Font.regularMonospacedSystemFont(9), C.text, {
-      lineLimit: 1
-    });
+    if (idx > 0) cpuCol.addSpacer(5);
+    addShardBarRow(cpuCol, s, isXL ? 86 : 108);
   });
   if (isXL) {
     body.addSpacer(14);
-    addVDivider(body, 186);
+    addVDivider(body, 210);
     body.addSpacer(14);
   } else {
     body.addSpacer(10);
     addHDivider(body);
     body.addSpacer(10);
   }
-  const rightW = isXL ? 334 : 310;
+  const rightW = isXL ? 372 : 310;
   const roomsCol = body.addStack();
   roomsCol.layoutVertically();
   roomsCol.size = new Size(rightW, 0);
   const rHead = roomsCol.addStack();
   rHead.centerAlignContent();
-  addText(rHead, "跨 Shard 房间 · 8H", Font.semiboldSystemFont(10), C.muted, { lineLimit: 1 });
+  addText(rHead, "房间态势 · 安全模式 · 核弹 · 能量", Font.semiboldSystemFont(10), C.muted, { lineLimit: 1 });
   rHead.addSpacer();
-  addText(rHead, `${data.totalRooms} ROOMS`, Font.mediumMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
+  addText(rHead, `${data.totalRooms} 房`, Font.regularMonospacedSystemFont(9), C.muted, { lineLimit: 1 });
   roomsCol.addSpacer(6);
-  const maxRooms = isPortrait ? 8 : isXL ? 7 : 4;
+  const maxRooms = isPortrait ? 10 : isXL ? 8 : 5;
   if (!data.rooms.length) {
-    addText(roomsCol, "运行脚本配置或同步房间数据", Font.systemFont(11), C.muted);
+    addText(roomsCol, "运行脚本配置 Token 后自动加载房间状态", Font.systemFont(11), C.muted);
   } else {
-    data.rooms.slice(0, maxRooms).forEach((item, idx) => {
-      if (idx > 0) roomsCol.addSpacer(isPortrait ? 7 : 5);
-      addRoomLine(roomsCol, item, isXL || isPortrait);
-    });
-  }
-  const totalStorage = data.rooms.reduce((sum, r) => sum + (Number(r.storageEnergy) || 0), 0);
-  if (isXL && totalStorage > 0) {
-    roomsCol.addSpacer(8);
-    addHDivider(roomsCol);
-    roomsCol.addSpacer(6);
-    const rFoot = roomsCol.addStack();
-    rFoot.centerAlignContent();
-    addText(rFoot, `Storage 总量 ${formatCompact(totalStorage)}`, Font.mediumMonospacedSystemFont(9), C.cyan, {
-      lineLimit: 1
-    });
-    rFoot.addSpacer();
-    addText(rFoot, data.hasGrafanaStats ? "Grafana 已同步" : "History 模式", Font.systemFont(9), C.muted, {
-      lineLimit: 1
+    data.rooms.slice(0, maxRooms).forEach((room, idx) => {
+      if (idx > 0) roomsCol.addSpacer(isPortrait ? 8 : 5);
+      addRoomMatrixRow(roomsCol, room, !isXL);
     });
   }
   if (isPortrait) {
     widget.addSpacer(12);
     addHDivider(widget);
     widget.addSpacer(10);
-    const gHead = widget.addStack();
-    gHead.centerAlignContent();
-    addText(gHead, "RCL 进度与储能 · GRAFANA", Font.semiboldSystemFont(10), C.muted, { lineLimit: 1 });
-    gHead.addSpacer();
-    if (totalStorage > 0) {
-      addText(gHead, `仓 ${formatCompact(totalStorage)}`, Font.semiboldMonospacedSystemFont(9), C.cyan, {
-        lineLimit: 1
-      });
-    }
-    widget.addSpacer(8);
-    data.rooms.slice(0, 8).forEach((item, idx) => {
-      if (idx > 0) widget.addSpacer(7);
-      const rRow = widget.addStack();
-      rRow.centerAlignContent();
-      addText(rRow, `${shortShard(item.shard)} ${item.room}`, Font.semiboldMonospacedSystemFont(10), C.text, {
-        lineLimit: 1
-      });
-      rRow.addSpacer(8);
-      const rclRatio = Number.isFinite(item.rclPercent) ? Math.max(0, Math.min(1, item.rclPercent / 100)) : 0;
-      bar(rRow, rclRatio, item.rcl >= 8 ? C.green : C.cyan, 86, 4);
-      rRow.addSpacer();
-      const cap = Number.isFinite(item.energyCapacity) ? `⚡${formatCompact(item.energyAvailable || 0)}/${formatCompact(item.energyCapacity)}` : "";
-      const stor = Number.isFinite(item.storageEnergy) ? `仓${formatCompact(item.storageEnergy)}` : "";
-      addText(rRow, [stor, cap].filter(Boolean).join(" · ") || "—", Font.regularMonospacedSystemFont(9), C.sub, {
-        lineLimit: 1
-      });
+    const fRow = widget.addStack();
+    fRow.centerAlignContent();
+    addText(
+      fRow,
+      `Storage ${formatCompact(data.totalStorageEnergy)} · Terminal ${formatCompact(data.totalTerminalEnergy)}`,
+      Font.regularMonospacedSystemFont(9),
+      C.sub,
+      { lineLimit: 1 }
+    );
+    fRow.addSpacer();
+    addText(fRow, `Creeps ${Math.round(data.creeps)}`, Font.semiboldMonospacedSystemFont(9), C.muted, {
+      lineLimit: 1
     });
   }
   widget.addSpacer();
 };
-var renderAccessory = (widget, data) => {
+var renderAccessory = (widget, family, data) => {
   widget.setPadding(0, 0, 0, 0);
   const pct = Math.round(data.ratio * 100);
-  if (F === "accessoryInline") {
+  if (family === "accessoryInline") {
+    const alert = data.incomingNukeCount > 0 ? `来袭${data.incomingNukeCount}` : `核${data.nukesReady}`;
     addText(
       widget,
-      `SCREEPS · CPU ${pct}% · ${data.shards.length}S/${data.totalRooms}R`,
+      `SCREEPS CPU ${pct}% · ${alert} · ⚡${formatCompact(data.totalEnergy)}`,
       Font.semiboldMonospacedSystemFont(11),
       C.accessory,
       { lineLimit: 1, scale: 0.7 }
     );
     return;
   }
-  if (F === "accessoryCircular") {
+  if (family === "accessoryCircular") {
     addCircularProgress(widget, pct, {
       size: 60,
       thickness: 5,
@@ -1100,32 +1166,31 @@ var renderAccessory = (widget, data) => {
   widget.setPadding(5, 8, 5, 8);
   const top = widget.addStack();
   top.centerAlignContent();
-  addText(top, `SCREEPS · ${data.shards.length} SHARDS`, Font.boldMonospacedSystemFont(9), C.accessory, {
-    lineLimit: 1,
-    scale: 0.75
-  });
+  addText(top, `SCREEPS · CPU ${pct}%`, Font.boldMonospacedSystemFont(9), C.accessory, { lineLimit: 1, scale: 0.75 });
   top.addSpacer();
-  addText(top, `${pct}%`, Font.boldMonospacedSystemFont(9), C.accessory, { lineLimit: 1 });
-  widget.addSpacer(3);
-  addText(widget, `CPU ${data.cpu.toFixed(1)}/${data.cpuLimit}`, Font.boldRoundedSystemFont(13), C.accessory, {
-    lineLimit: 1,
-    scale: 0.75
-  });
-  widget.addSpacer(3);
-  bar(widget, data.ratio, C.accessory, 152, 4, C.accessoryTrack);
+  addText(top, `核${data.nukesReady}/${data.nukerCount}`, Font.boldMonospacedSystemFont(9), C.accessory, { lineLimit: 1 });
   widget.addSpacer(3);
   addText(
     widget,
-    `GCL ${data.gclLevel} · BKT ${formatCompact(data.bucket)} · ${data.totalRooms}R`,
-    Font.mediumMonospacedSystemFont(8),
+    `余额 ${formatMoney(data.credits)} · 能量 ${formatCompact(data.totalEnergy)}`,
+    Font.boldRoundedSystemFont(11),
     C.accessory,
     { lineLimit: 1, scale: 0.75 }
   );
+  widget.addSpacer(3);
+  bar(widget, data.ratio, C.accessory, 152, 4, C.accessoryTrack);
+  widget.addSpacer(3);
+  const smStatus = data.activeSafeModes.length > 0 ? `安全模式激活 ${data.activeSafeModes.length}` : `安全模式 ×${data.totalSafeModeCharges}`;
+  addText(widget, `${smStatus} · BKT ${formatCompact(data.bucket)}`, Font.mediumMonospacedSystemFont(8), C.accessory, {
+    lineLimit: 1,
+    scale: 0.75
+  });
 };
-var render = async () => {
+var createWidget = async (family = config.widgetFamily || "medium") => {
   const widget = new ListWidget();
   const cfg = getConfig();
-  if (isAccessory) {
+  const accessory = ACCESSORY_FAMILIES.includes(family);
+  if (accessory) {
     if (!cfg.token) {
       widget.setPadding(4, 6, 4, 6);
       addText(widget, "SCREEPS · 未配置", Font.semiboldMonospacedSystemFont(10), C.accessory, {
@@ -1136,7 +1201,7 @@ var render = async () => {
     }
     try {
       const data2 = await loadData(cfg);
-      renderAccessory(widget, data2);
+      renderAccessory(widget, family, data2);
     } catch {
       widget.setPadding(4, 6, 4, 6);
       addText(widget, "SCREEPS · 离线", Font.semiboldMonospacedSystemFont(10), C.accessory, { lineLimit: 1 });
@@ -1154,9 +1219,8 @@ var render = async () => {
   if (!cfg.token) {
     addText(widget, "Screeps", Font.boldRoundedSystemFont(18), C.cyan);
     widget.addSpacer(8);
-    addText(widget, "运行脚本配置 Auth Token\n即可自动识别跨 Shard 帝国", Font.mediumSystemFont(12), C.muted);
-    widget.url = `scriptable:///run?scriptName=${encodeURIComponent(Script.name())}`;
-    return widget;
+    addText(widget, "点击配置 Auth Token\n查看核弹、安全模式、余额、能量与 CPU", Font.mediumSystemFont(12), C.muted);
+    return attachMenuURL(widget);
   }
   let data;
   try {
@@ -1166,32 +1230,30 @@ var render = async () => {
     widget.addSpacer(8);
     addText(widget, "数据暂时不可用", Font.mediumSystemFont(14), C.red);
     addText(widget, error.message?.slice(0, 40) || "请检查配置", Font.systemFont(10), C.muted);
-    return widget;
+    return attachMenuURL(widget);
   }
-  if (F === "small") renderSmall(widget, data);
-  else if (isLargeFamily(F)) renderLarge(widget, data, F);
+  if (family === "small") renderSmall(widget, data);
+  else if (isLargeFamily(family)) renderLarge(widget, data, family);
   else renderMedium(widget, data);
+  widget.refreshAfterDate = new Date(Date.now() + 10 * 60 * 1e3);
   return attachMenuURL(widget);
 };
-var run = async () => {
-  if (shouldShowWidgetMenu()) {
-    await runWidgetMenu({
-      title: "Screeps",
-      actions: [
-        { title: "刷新预览", handler: async () => {
-        } },
-        { title: "重新配置", handler: configure },
-        { title: "检查更新", handler: () => updater.checkForUpdate({ notify: true }) }
-      ]
-    });
-    return;
+if (shouldShowWidgetMenu()) {
+  const menu = await runWidgetMenu({
+    title: "Screeps 运营面板",
+    message: "跨 Shard 核弹、安全模式、账户余额、能量与 CPU 监控。",
+    version: "1.0.0",
+    updater,
+    scriptId: "screeps",
+    previewFamilies: ALL_PREVIEW_FAMILIES,
+    actions: [{ id: "configure", title: "配置 Token 与分片" }]
+  });
+  if (menu?.action === "preview") {
+    await presentWidgetPreviews(createWidget, menu.families);
+  } else if (menu?.action === "configure") {
+    await configure();
   }
-  const widget = await render();
-  if (config.runsInWidget) {
-    Script.setWidget(widget);
-  } else {
-    await presentWidgetPreviews(widget, { family: F });
-  }
-  Script.complete();
-};
-await run();
+} else {
+  Script.setWidget(await createWidget());
+}
+Script.complete();
