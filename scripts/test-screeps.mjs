@@ -64,18 +64,26 @@ for (const { id: family } of core.families) {
     const html = runtime.renderWidgetTree(tree);
     assert.doesNotMatch(html, /undefined|NaN|数据暂时不可用/);
     if (family === 'accessoryCircular') {
-      assert.match(html, /81%/);
+      assert.match(html, /82%/);
       assert.match(html, /CPU/);
-    } else {
+    } else if (family === 'accessoryInline' || family === 'accessoryRectangular') {
       assert.match(html, /SCREEPS/);
+      assert.match(html, /3S|3 SHARDS/);
+    } else {
+      assert.match(html, /Screeps/);
+      assert.match(html, /107\.0/);
     }
-    if (family === 'medium' || family === 'large' || family === 'extraLarge') {
+    if (family === 'medium') {
+      assert.match(html, /shard2|S2/);
+      assert.match(html, /shardX|SX/);
+      assert.match(html, /shard3|S3/);
+    }
+    if (family === 'large' || family === 'extraLarge') {
       assert.match(html, /E43N29/);
-      assert.match(html, /R8/);
-      assert.match(html, /56\.8\/70/);
+      assert.match(html, /E48N32/);
     }
     if (family === 'extraLargePortrait') {
-      assert.match(html, /STORAGE &amp; RCL|STORAGE & RCL/);
+      assert.match(html, /GRAFANA/);
     }
   }
 }
@@ -97,7 +105,7 @@ const fallbackTree = await runtime.executeSource({
 });
 const fallbackHtml = runtime.renderWidgetTree(fallbackTree);
 assert.doesNotMatch(fallbackHtml, /undefined|NaN|数据暂时不可用/);
-assert.match(fallbackHtml, /56\.8\/70/);
-assert.match(fallbackHtml, /E43N29/);
+assert.match(fallbackHtml, /107\.0/);
+assert.match(fallbackHtml, /S2|shard2/);
 
-console.log('screeps source, distribution, and multi-family runtime tests passed');
+console.log('screeps source, distribution, and multi-shard runtime tests passed');
