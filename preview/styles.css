@@ -262,25 +262,29 @@ button:focus-visible, [role='button']:focus-visible { outline: 2px solid var(--a
   .app-header { padding-top: 12px; padding-bottom: 12px; }
   .header-actions { gap: 6px; }
   .build-status { display: none; }
-  .content-grid { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .catalog { padding: 12px 18px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .content-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .catalog { padding: 12px 18px 10px; border-right: 0; border-bottom: 1px solid var(--line); max-width: 100%; overflow: hidden; }
   .catalog-heading, .catalog-foot { display: none; }
-  #catalog-list { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  #catalog-list { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; max-width: 100%; }
   #catalog-list::-webkit-scrollbar { display: none; }
   .catalog-item { flex: 0 0 auto; grid-template-columns: 25px minmax(0, 1fr); width: auto; min-width: 118px; min-height: 41px; padding: 6px 8px; }
   .catalog-index { display: none; }
   .catalog-copy small { display: none; }
-  .workspace { padding: 21px 18px 24px; }
+  .workspace { padding: 21px 18px 24px; min-width: 0; }
+  .preview-stage { width: 100%; }
+  .preview-stage--focus { width: 100%; }
 }
 
 @media (max-width: 620px) {
-  .app-header { grid-template-columns: 1fr auto; }
+  .app-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .brand { min-width: 0; }
+  .brand > div { min-width: 0; }
   .brand b { font-size: 12px; }
   .brand span:not(.brand-mark) { font-size: 8px; }
   .workspace-toolbar { display: grid; gap: 10px; margin-bottom: 17px; }
   .family-switcher { gap: 11px; max-width: 100%; }
   .dimension-readout { justify-content: space-between; }
-  .preview-gallery { grid-template-columns: 1fr; gap: 19px; }
+  .preview-gallery { grid-template-columns: minmax(0, 1fr); gap: 19px; }
   .preview-stage { height: 240px; }
   .overview-heading { align-items: start; display: grid; gap: 7px; }
   .overview-heading h1 { font-size: 29px; }

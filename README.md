@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | [`xlyra.js`](./dist/xlyra.js) | xLyra AI 网关看板（管理员）：请求、成本、站点健康、Key、模型 TOP 3 与 Codex OAuth 配额；支持桌面一键刷新与透明背景；首次运行需配置 Admin Token | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
 | [`xlyra-user.js`](./dist/xlyra-user.js) | xLyra 密钥门户看板（下游用户）：余额与用量；来自 anlostyle 二次开发；支持桌面一键刷新与透明背景；首次运行需配置 API Key | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
+| [`screeps.js`](./dist/screeps.js) | Screeps 运营面板：GCL、money、CPU 平均值、bucket 与房间 8 小时经济数据；支持透明背景；首次运行需配置 Auth Token、Shard 和监控房间 | 中 / 大 / 超大 / 竖屏超大 |
 | [`ikuai.js`](./dist/ikuai.js) | iKuai 软路由状态：在线设备、实时流量、原生进度环/条与桌面一键刷新 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
 | [`work-helper.js`](./dist/work-helper.js) | 工作日历：上下班倒计时、原生工作进度条、下一假期与桌面一键刷新 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
 | [`time-progress.js`](./dist/time-progress.js) | 时间进度：今日、本周、本月与今年的原生线性/环形进度可视化 | 小 / 中 / 大 / 超大 / 竖屏超大 / 锁屏 |
@@ -38,7 +39,7 @@
 
 - 所有发布脚本均为单文件，不依赖运行时 `import`，可直接在 Scriptable 使用。
 - 组件提供深浅色适配，并支持主屏幕和锁屏组件尺寸。
-- iKuai、xLyra 与 xlyra-user 等敏感配置保存于 iOS Keychain，不会写入仓库或随脚本源码公开；xLyra 组件仅在凭证验证成功后保存配置。
+- iKuai、xLyra、xlyra-user 与 Screeps 等敏感配置保存于 iOS Keychain，不会写入仓库或随脚本源码公开；xLyra 组件仅在凭证验证成功后保存配置。
 - 更新前会将当前脚本备份到 Scriptable 本地 Library；网络或更新异常不会影响已有组件运行。
 
 ## 开发

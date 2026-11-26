@@ -33,6 +33,7 @@ const widgets = [
   { name: 'cyber-clock', version: '1.1.0', iconColor: 'green', iconGlyph: 'terminal' },
   { name: 'pixel-pet', version: '1.1.0', iconColor: 'pink', iconGlyph: 'paw-print' },
   { name: 'xlyra-user', version: '1.2.0', iconColor: 'purple', iconGlyph: 'user' },
+  { name: 'screeps', version: '1.0.0', iconColor: 'purple', iconGlyph: 'gamepad' },
 ];
 
 const createBanner = ({ name, version, iconColor, iconGlyph }) =>

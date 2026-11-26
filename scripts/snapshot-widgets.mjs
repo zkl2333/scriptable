@@ -12,6 +12,7 @@ await import('../src/widgets/hitokoto.mock.js');
 await import('../src/widgets/ikuai.mock.js');
 await import('../src/widgets/xlyra.mock.js');
 await import('../src/widgets/xlyra-user.mock.js');
+await import('../src/widgets/screeps.mock.js');
 await import('../src/widgets/work-helper.mock.js');
 await import('../preview/widgets.js');
 
