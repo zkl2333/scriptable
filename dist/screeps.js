@@ -463,7 +463,16 @@ var C = {
   accessory: dyn("#111111", "#FFFFFF"),
   accessoryTrack: Color.dynamic(new Color("#111111", 0.2), new Color("#FFFFFF", 0.24))
 };
-var isDarkMode = () => typeof Device !== "undefined" && typeof Device.isUsingDarkAppearance === "function" ? Device.isUsingDarkAppearance() : true;
+var isDarkMode = () => {
+  if (typeof config !== "undefined" && config.runsInWidget) return null;
+  try {
+    if (typeof Device !== "undefined" && typeof Device.isUsingDarkAppearance === "function") {
+      return Boolean(Device.isUsingDarkAppearance());
+    }
+  } catch {
+  }
+  return null;
+};
 var readKeychain = (key) => {
   try {
     return Keychain.contains(key) ? String(Keychain.get(key) ?? "") : "";
@@ -517,8 +526,10 @@ var writeCache = (sig, patch) => {
 var sleep = (ms) => new Promise((resolve) => {
   if (typeof Timer !== "undefined" && typeof Timer.schedule === "function") {
     Timer.schedule(ms, false, resolve);
-  } else {
+  } else if (typeof setTimeout === "function") {
     setTimeout(resolve, ms);
+  } else {
+    resolve();
   }
 });
 var mapInBatches = async (items, size, delayMs, worker) => {
@@ -670,16 +681,16 @@ var pill = (parent, text, fg, bg, fontSize = 8, pad = [2, 5, 2, 5]) => {
 var statusColor = (ratio, bucket = 1e4) => ratio > 0.9 || bucket < 1e3 ? C.red : ratio > 0.75 || bucket < 5e3 ? C.yellow : C.cyan;
 var statusHex = (ratio, bucket = 1e4) => {
   const dark = isDarkMode();
-  if (ratio > 0.9 || bucket < 1e3) return dark ? "#FB7185" : "#DC2626";
-  if (ratio > 0.75 || bucket < 5e3) return dark ? "#ffe66d" : "#D97706";
-  return dark ? "#4ecdc4" : "#0D9488";
+  if (ratio > 0.9 || bucket < 1e3) return dark === false ? "#DC2626" : "#F45B69";
+  if (ratio > 0.75 || bucket < 5e3) return dark === false ? "#D97706" : dark === true ? "#ffe66d" : "#E5A11A";
+  return dark === false ? "#0D9488" : dark === true ? "#4ecdc4" : "#18B3A8";
 };
-var drawIcon = (kind, hex, size = 11) => {
+var drawIcon = (kind, size = 11) => {
   const ctx = new DrawContext();
   ctx.size = new Size(size, size);
   ctx.opaque = false;
   ctx.respectScreenScale = true;
-  const col = new Color(hex);
+  const col = new Color("#FFFFFF");
   const c = size / 2;
   if (kind === "hex") {
     const r = size * 0.42;
@@ -719,7 +730,7 @@ var drawIcon = (kind, hex, size = 11) => {
     p.addLine(new Point(1.6, 2.7));
     p.closeSubpath();
     ctx.addPath(p);
-    ctx.setFillColor(new Color(hex, 0.22));
+    ctx.setFillColor(new Color("#FFFFFF", 0.25));
     ctx.fillPath();
     ctx.addPath(p);
     ctx.setStrokeColor(col);
@@ -745,7 +756,7 @@ var drawIcon = (kind, hex, size = 11) => {
     p.addLine(new Point(1.5, c));
     p.closeSubpath();
     ctx.addPath(p);
-    ctx.setFillColor(new Color(hex, 0.24));
+    ctx.setFillColor(new Color("#FFFFFF", 0.28));
     ctx.fillPath();
     ctx.addPath(p);
     ctx.setStrokeColor(col);
@@ -754,12 +765,17 @@ var drawIcon = (kind, hex, size = 11) => {
   }
   return ctx.getImage();
 };
-var drawCpuArc = (ratio, bucket, size = 60, thickness = 5.5) => {
+var addIcon = (parent, kind, tintColor, size = 11) => {
+  const img = parent.addImage(drawIcon(kind, size));
+  img.imageSize = new Size(size, size);
+  img.tintColor = tintColor;
+  return img;
+};
+var drawCpuArcRing = (ratio, bucket, size = 60, thickness = 5.5) => {
   const ctx = new DrawContext();
   ctx.size = new Size(size, size);
   ctx.opaque = false;
   ctx.respectScreenScale = true;
-  const dark = isDarkMode();
   const cx = size / 2;
   const cy = size / 2;
   const r = size / 2 - thickness / 2 - 1.5;
@@ -781,7 +797,7 @@ var drawCpuArc = (ratio, bucket, size = 60, thickness = 5.5) => {
     ctx.setLineWidth(width);
     ctx.strokePath();
   };
-  drawArc(sweepDeg, dark ? new Color("#FFFFFF", 0.1) : new Color("#0F172A", 0.1), thickness);
+  drawArc(sweepDeg, new Color("#7F8AA3", 0.24), thickness);
   const accentHex = statusHex(ratio, bucket);
   drawArc(sweepDeg * clamped, new Color(accentHex), thickness);
   const endRad = (startDeg + sweepDeg * clamped) * Math.PI / 180;
@@ -789,23 +805,30 @@ var drawCpuArc = (ratio, bucket, size = 60, thickness = 5.5) => {
   const ey = cy + r * Math.sin(endRad);
   ctx.setFillColor(new Color(accentHex));
   ctx.fillEllipse(new Rect(ex - thickness / 2, ey - thickness / 2, thickness, thickness));
-  const pctStr = `${Math.round((Number(ratio) || 0) * 100)}%`;
-  const showSub = size >= 44;
-  const fontSize = Math.round(size * (showSub ? 0.25 : 0.29));
-  ctx.setTextAlignedCenter();
-  ctx.setFont(Font.boldRoundedSystemFont(fontSize));
-  ctx.setTextColor(dark ? new Color("#F4F6FB") : new Color("#0F172A"));
-  ctx.drawTextInRect(
-    pctStr,
-    new Rect(0, cy - fontSize * (showSub ? 0.72 : 0.58), size, fontSize * 1.25)
-  );
-  if (showSub) {
-    const subSize = Math.max(7, Math.round(size * 0.13));
-    ctx.setFont(Font.semiboldMonospacedSystemFont(subSize));
-    ctx.setTextColor(dark ? new Color("#7B86A0") : new Color("#64748B"));
-    ctx.drawTextInRect("LOAD", new Rect(0, cy + fontSize * 0.48, size, subSize * 1.4));
-  }
   return ctx.getImage();
+};
+var addCpuGauge = (parent, ratio, bucket, size = 60, thickness = 5.5) => {
+  const box = parent.addStack();
+  box.layoutVertically();
+  box.centerAlignContent();
+  box.size = new Size(size, size);
+  box.backgroundImage = drawCpuArcRing(ratio, bucket, size, thickness);
+  const showSub = size >= 44;
+  const pctFontSize = Math.round(size * (showSub ? 0.24 : 0.28));
+  box.addSpacer();
+  addText(box, `${Math.round((Number(ratio) || 0) * 100)}%`, Font.boldRoundedSystemFont(pctFontSize), C.text, {
+    align: "center",
+    lineLimit: 1,
+    scale: 0.75
+  });
+  if (showSub) {
+    addText(box, "LOAD", Font.semiboldMonospacedSystemFont(Math.max(7, Math.round(size * 0.12))), C.muted, {
+      align: "center",
+      lineLimit: 1
+    });
+  }
+  box.addSpacer();
+  return box;
 };
 var drawSparkline = (series, limit, width, height) => {
   const ctx = new DrawContext();
@@ -813,8 +836,8 @@ var drawSparkline = (series, limit, width, height) => {
   ctx.opaque = false;
   ctx.respectScreenScale = true;
   const dark = isDarkMode();
-  const strokeHex = dark ? "#4ecdc4" : "#0D9488";
-  const limitHex = dark ? "#8060b0" : "#94A3B8";
+  const strokeHex = dark === false ? "#0D9488" : dark === true ? "#4ecdc4" : "#18B3A8";
+  const limitHex = dark === false ? "#94A3B8" : "#8060b0";
   const pts = series.length >= 2 ? series : [0, limit * 0.4];
   const maxVal = Math.max(limit * 1.12, ...pts, 1);
   const minVal = Math.max(0, Math.min(...pts) * 0.65);
@@ -825,7 +848,7 @@ var drawSparkline = (series, limit, width, height) => {
   const innerH = Math.max(1, height - padY * 2);
   if (height >= 30) {
     const midY = padY + innerH * 0.5;
-    ctx.setFillColor(dark ? new Color("#FFFFFF", 0.05) : new Color("#0F172A", 0.05));
+    ctx.setFillColor(new Color("#7F8AA3", 0.16));
     ctx.fillRect(new Rect(padX, midY, innerW, 0.75));
   }
   if (limit > minVal && limit <= maxVal) {
@@ -845,7 +868,7 @@ var drawSparkline = (series, limit, width, height) => {
   area.addLine(new Point(coords[coords.length - 1].x, height - padY));
   area.closeSubpath();
   ctx.addPath(area);
-  ctx.setFillColor(new Color(strokeHex, dark ? 0.16 : 0.11));
+  ctx.setFillColor(new Color(strokeHex, 0.15));
   ctx.fillPath();
   const line = new Path();
   line.move(new Point(coords[0].x, coords[0].y));
@@ -868,12 +891,11 @@ var drawBar = (value, colorHex, width, height = 4) => {
   ctx.size = new Size(width, height);
   ctx.opaque = false;
   ctx.respectScreenScale = true;
-  const dark = isDarkMode();
   const r = height / 2;
   const track = new Path();
   track.addRoundedRect(new Rect(0, 0, width, height), r, r);
   ctx.addPath(track);
-  ctx.setFillColor(dark ? new Color("#FFFFFF", 0.1) : new Color("#0F172A", 0.1));
+  ctx.setFillColor(new Color("#7F8AA3", 0.22));
   ctx.fillPath();
   const fillW = Math.max(height, Math.min(width, width * Math.max(0, Math.min(1, value))));
   const fill = new Path();
@@ -1167,9 +1189,7 @@ var addHeader = (widget, data, mode = "medium") => {
   const wide = mode === "extraLarge";
   const header = widget.addStack();
   header.centerAlignContent();
-  const iconHex = data.incomingNukeCount > 0 ? "#FB7185" : isDarkMode() ? "#4ecdc4" : "#0D9488";
-  const icon = header.addImage(drawIcon("hex", iconHex, compact ? 12 : 14));
-  icon.imageSize = new Size(compact ? 12 : 14, compact ? 12 : 14);
+  addIcon(header, "hex", data.incomingNukeCount > 0 ? C.red : C.cyan, compact ? 12 : 14);
   header.addSpacer(5);
   addText(header, "Screeps", Font.boldSystemFont(compact ? 12 : 13), C.text, { lineLimit: 1 });
   if (!compact) {
@@ -1201,12 +1221,11 @@ var addHeader = (widget, data, mode = "medium") => {
     padding: [3, 7, 3, 7]
   });
 };
-var addMetricTile = (parent, { width, height, icon, iconHex, label, value, valueColor, sub, compact = false }) => {
+var addMetricTile = (parent, { width, height, icon, iconColor, label, value, valueColor, sub, compact = false }) => {
   const tile = bento(parent, width, height, compact ? [6, 8, 6, 8] : [9, 11, 8, 11], compact ? 10 : 12);
   const top = tile.addStack();
   top.centerAlignContent();
-  const img = top.addImage(drawIcon(icon, iconHex, compact ? 9 : 10));
-  img.imageSize = new Size(compact ? 9 : 10, compact ? 9 : 10);
+  addIcon(top, icon, iconColor || valueColor, compact ? 9 : 10);
   top.addSpacer(4);
   addText(top, label, Font.mediumSystemFont(compact ? 9 : 10), C.muted, { lineLimit: 1 });
   tile.addSpacer();
@@ -1272,7 +1291,9 @@ var addRoomTableRow = (parent, room, maxEnergy, wide = false) => {
   row.addSpacer();
   if (wide) {
     const energyRatio = progress(room.totalEnergy, maxEnergy);
-    const barImg = row.addImage(drawBar(energyRatio, isDarkMode() ? "#4ecdc4" : "#0D9488", 50, 4));
+    const dark = isDarkMode();
+    const barHex = dark === false ? "#0D9488" : dark === true ? "#4ecdc4" : "#18B3A8";
+    const barImg = row.addImage(drawBar(energyRatio, barHex, 50, 4));
     barImg.imageSize = new Size(50, 4);
     row.addSpacer(6);
   }
@@ -1285,7 +1306,6 @@ var addRoomTableRow = (parent, room, maxEnergy, wide = false) => {
   });
 };
 var renderSmall = (widget, data) => {
-  const dark = isDarkMode();
   addHeader(widget, data, "small");
   widget.addSpacer(6);
   const cpuCard = bento(widget, 134, 40, [6, 8, 6, 8], 10);
@@ -1299,8 +1319,7 @@ var renderSmall = (widget, data) => {
   addText(cNum, data.cpu.toFixed(1), Font.boldRoundedSystemFont(15), C.cyan, { lineLimit: 1, scale: 0.75 });
   addText(cNum, `/${data.cpuLimit}`, Font.mediumRoundedSystemFont(9), C.muted, { lineLimit: 1 });
   cRow.addSpacer();
-  const arc = cRow.addImage(drawCpuArc(data.ratio, data.bucket, 28, 3.2));
-  arc.imageSize = new Size(28, 28);
+  addCpuGauge(cRow, data.ratio, data.bucket, 28, 3.2);
   widget.addSpacer(6);
   const r1 = widget.addStack();
   r1.spacing = 6;
@@ -1308,7 +1327,6 @@ var renderSmall = (widget, data) => {
     width: 64,
     height: 36,
     icon: "nuke",
-    iconHex: data.incomingNukeCount > 0 ? "#FB7185" : dark ? "#ffe66d" : "#D97706",
     label: "核弹",
     value: data.incomingNukeCount > 0 ? `来袭${data.incomingNukeCount}` : `${data.nukesReady}/${data.nukerCount}`,
     valueColor: data.incomingNukeCount > 0 ? C.red : C.yellow,
@@ -1318,7 +1336,7 @@ var renderSmall = (widget, data) => {
     width: 64,
     height: 36,
     icon: "shield",
-    iconHex: data.activeSafeModes.length > 0 ? dark ? "#34D399" : "#0F8A5F" : dark ? "#A8B3C9" : "#475569",
+    iconColor: data.activeSafeModes.length > 0 ? C.green : C.sub,
     label: "安全",
     value: data.activeSafeModes.length > 0 ? `${data.activeSafeModes.length} 激活` : `×${data.totalSafeModeCharges}`,
     valueColor: data.activeSafeModes.length > 0 ? C.green : C.text,
@@ -1331,7 +1349,6 @@ var renderSmall = (widget, data) => {
     width: 64,
     height: 36,
     icon: "coin",
-    iconHex: dark ? "#ffe66d" : "#D97706",
     label: "余额",
     value: formatMoney(data.credits),
     valueColor: C.yellow,
@@ -1341,7 +1358,6 @@ var renderSmall = (widget, data) => {
     width: 64,
     height: 36,
     icon: "bolt",
-    iconHex: dark ? "#4ecdc4" : "#0D9488",
     label: "能量",
     value: formatCompact(data.totalEnergy),
     valueColor: C.cyan,
@@ -1349,7 +1365,6 @@ var renderSmall = (widget, data) => {
   });
 };
 var renderMedium = (widget, data) => {
-  const dark = isDarkMode();
   addHeader(widget, data, "medium");
   widget.addSpacer(7);
   const grid = widget.addStack();
@@ -1391,7 +1406,6 @@ var renderMedium = (widget, data) => {
     width: 83,
     height: 51,
     icon: "nuke",
-    iconHex: data.incomingNukeCount > 0 ? "#FB7185" : dark ? "#ffe66d" : "#D97706",
     label: "核弹数量",
     value: data.incomingNukeCount > 0 ? `来袭 ${data.incomingNukeCount}` : `${data.nukesReady}/${data.nukerCount}`,
     valueColor: data.incomingNukeCount > 0 ? C.red : C.yellow,
@@ -1402,7 +1416,7 @@ var renderMedium = (widget, data) => {
     width: 83,
     height: 51,
     icon: "shield",
-    iconHex: data.activeSafeModes.length > 0 ? dark ? "#34D399" : "#0F8A5F" : dark ? "#A8B3C9" : "#475569",
+    iconColor: data.activeSafeModes.length > 0 ? C.green : C.sub,
     label: "安全模式",
     value: data.activeSafeModes.length > 0 ? `${data.activeSafeModes.length} 激活` : `×${data.totalSafeModeCharges}`,
     valueColor: data.activeSafeModes.length > 0 ? C.green : C.text,
@@ -1415,7 +1429,6 @@ var renderMedium = (widget, data) => {
     width: 83,
     height: 51,
     icon: "coin",
-    iconHex: dark ? "#ffe66d" : "#D97706",
     label: "账户余额",
     value: formatMoney(data.credits),
     valueColor: C.yellow,
@@ -1426,7 +1439,6 @@ var renderMedium = (widget, data) => {
     width: 83,
     height: 51,
     icon: "bolt",
-    iconHex: dark ? "#4ecdc4" : "#0D9488",
     label: "能量水平",
     value: formatCompact(data.totalEnergy),
     valueColor: C.cyan,
@@ -1437,7 +1449,6 @@ var renderMedium = (widget, data) => {
 var renderLarge = (widget, data, family = "large") => {
   const isXL = family === "extraLarge";
   const isPortrait = family === "extraLargePortrait";
-  const dark = isDarkMode();
   addHeader(widget, data, family);
   widget.addSpacer(10);
   if (isXL) {
@@ -1449,8 +1460,7 @@ var renderLarge = (widget, data, family = "large") => {
     const cpuCard2 = bento(leftCol, 292, 138, [10, 12, 10, 12], 13);
     const cpuTop = cpuCard2.addStack();
     cpuTop.centerAlignContent();
-    const arcImg2 = cpuTop.addImage(drawCpuArc(data.ratio, data.bucket, 62, 5.5));
-    arcImg2.imageSize = new Size(62, 62);
+    addCpuGauge(cpuTop, data.ratio, data.bucket, 62, 5.5);
     cpuTop.addSpacer(11);
     const cpuMeta = cpuTop.addStack();
     cpuMeta.layoutVertically();
@@ -1476,7 +1486,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 142,
       height: 63,
       icon: "nuke",
-      iconHex: data.incomingNukeCount > 0 ? "#FB7185" : dark ? "#ffe66d" : "#D97706",
       label: "核弹储备",
       value: data.incomingNukeCount > 0 ? `来袭 ${data.incomingNukeCount}` : `${data.nukesReady} / ${data.nukerCount}`,
       valueColor: data.incomingNukeCount > 0 ? C.red : C.yellow,
@@ -1486,11 +1495,11 @@ var renderLarge = (widget, data, family = "large") => {
       width: 142,
       height: 63,
       icon: "shield",
-      iconHex: data.activeSafeModes.length > 0 ? dark ? "#34D399" : "#0F8A5F" : dark ? "#A8B3C9" : "#475569",
+      iconColor: data.activeSafeModes.length > 0 ? C.green : C.sub,
       label: "安全模式",
       value: data.activeSafeModes.length > 0 ? `${data.activeSafeModes.length} 房激活` : `×${data.totalSafeModeCharges} 次`,
       valueColor: data.activeSafeModes.length > 0 ? C.green : C.text,
-      sub: data.activeSafeModes.length > 0 ? `${data.activeSafeModes[0].room} 防护中` : `总可用储备`
+      sub: data.activeSafeModes.length > 0 ? `${data.activeSafeModes[0].room} 防护中` : "总可用储备"
     });
     const kpiRow2 = leftCol.addStack();
     kpiRow2.spacing = 8;
@@ -1498,7 +1507,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 142,
       height: 63,
       icon: "coin",
-      iconHex: dark ? "#ffe66d" : "#D97706",
       label: "账户余额",
       value: formatMoney(data.credits),
       valueColor: C.yellow,
@@ -1508,7 +1516,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 142,
       height: 63,
       icon: "bolt",
-      iconHex: dark ? "#4ecdc4" : "#0D9488",
       label: "帝国能量",
       value: formatCompact(data.totalEnergy),
       valueColor: C.cyan,
@@ -1555,8 +1562,7 @@ var renderLarge = (widget, data, family = "large") => {
   const cTop = cpuCard.addStack();
   cTop.centerAlignContent();
   const arcSize = isPortrait ? 64 : 56;
-  const arcImg = cTop.addImage(drawCpuArc(data.ratio, data.bucket, arcSize, 5));
-  arcImg.imageSize = new Size(arcSize, arcSize);
+  addCpuGauge(cTop, data.ratio, data.bucket, arcSize, 5);
   cTop.addSpacer(10);
   const cInfo = cTop.addStack();
   cInfo.layoutVertically();
@@ -1590,7 +1596,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 151,
       height: 66,
       icon: "nuke",
-      iconHex: data.incomingNukeCount > 0 ? "#FB7185" : dark ? "#ffe66d" : "#D97706",
       label: "核弹储备",
       value: data.incomingNukeCount > 0 ? `来袭 ${data.incomingNukeCount}` : `${data.nukesReady} / ${data.nukerCount}`,
       valueColor: data.incomingNukeCount > 0 ? C.red : C.yellow,
@@ -1600,7 +1605,7 @@ var renderLarge = (widget, data, family = "large") => {
       width: 151,
       height: 66,
       icon: "shield",
-      iconHex: data.activeSafeModes.length > 0 ? dark ? "#34D399" : "#0F8A5F" : dark ? "#A8B3C9" : "#475569",
+      iconColor: data.activeSafeModes.length > 0 ? C.green : C.sub,
       label: "安全模式",
       value: data.activeSafeModes.length > 0 ? `${data.activeSafeModes.length} 房激活` : `×${data.totalSafeModeCharges} 次`,
       valueColor: data.activeSafeModes.length > 0 ? C.green : C.text,
@@ -1613,7 +1618,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 151,
       height: 66,
       icon: "coin",
-      iconHex: dark ? "#ffe66d" : "#D97706",
       label: "账户余额",
       value: formatMoney(data.credits),
       valueColor: C.yellow,
@@ -1623,7 +1627,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 151,
       height: 66,
       icon: "bolt",
-      iconHex: dark ? "#4ecdc4" : "#0D9488",
       label: "帝国能量",
       value: formatCompact(data.totalEnergy),
       valueColor: C.cyan,
@@ -1636,7 +1639,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 73,
       height: 54,
       icon: "nuke",
-      iconHex: data.incomingNukeCount > 0 ? "#FB7185" : dark ? "#ffe66d" : "#D97706",
       label: "核弹",
       value: data.incomingNukeCount > 0 ? `来袭${data.incomingNukeCount}` : `${data.nukesReady}/${data.nukerCount}`,
       valueColor: data.incomingNukeCount > 0 ? C.red : C.yellow,
@@ -1647,7 +1649,7 @@ var renderLarge = (widget, data, family = "large") => {
       width: 73,
       height: 54,
       icon: "shield",
-      iconHex: data.activeSafeModes.length > 0 ? dark ? "#34D399" : "#0F8A5F" : dark ? "#A8B3C9" : "#475569",
+      iconColor: data.activeSafeModes.length > 0 ? C.green : C.sub,
       label: "安全",
       value: data.activeSafeModes.length > 0 ? `${data.activeSafeModes.length}激活` : `×${data.totalSafeModeCharges}`,
       valueColor: data.activeSafeModes.length > 0 ? C.green : C.text,
@@ -1658,7 +1660,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 73,
       height: 54,
       icon: "coin",
-      iconHex: dark ? "#ffe66d" : "#D97706",
       label: "余额",
       value: formatMoney(data.credits),
       valueColor: C.yellow,
@@ -1669,7 +1670,6 @@ var renderLarge = (widget, data, family = "large") => {
       width: 73,
       height: 54,
       icon: "bolt",
-      iconHex: dark ? "#4ecdc4" : "#0D9488",
       label: "能量",
       value: formatCompact(data.totalEnergy),
       valueColor: C.cyan,

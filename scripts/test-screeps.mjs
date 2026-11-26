@@ -35,6 +35,11 @@ assert.doesNotMatch(
   /textFieldValue\(\d+\)\.trim\(/,
   'Alert.textFieldValue 在 iOS 空输入时可能返回 null，禁止直接链式 .trim()'
 );
+assert.match(
+  source,
+  /if \(typeof config !== 'undefined' && config\.runsInWidget\) return null;/,
+  '桌面小组件运行时不得调用 Device.isUsingDarkAppearance()'
+);
 
 // API endpoints & menu integration used
 assert.match(source, /auth\/me/);
